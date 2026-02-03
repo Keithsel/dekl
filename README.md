@@ -82,12 +82,79 @@ modules:
   - my-tools
 ```
 
+### Hooks
+
+Modules and hosts can define hooks: scripts that run at specific points.
+
+Module hooks: `pre` (before sync), `post` (after sync).
+
+Host hooks: `pre_sync`, `post_sync`, `pre_update`, `post_update`.
+
+Example module with hooks (`modules/neovim/module.yaml`):
+
+```yaml
+packages:
+  - neovim
+
+hooks:
+  post: scripts/setup.sh
+```
+
+Example host config with hooks (`hosts/{hostname}.yaml`):
+
+```yaml
+modules:
+  - base
+  - system
+  - my-tools
+
+hooks:
+  post_sync: scripts/restart-services.sh
+```
+
+Hook scripts can be configured with options:
+
+```yaml
+hooks:
+  post:
+    run: scripts/setup.sh
+    always: true  # Run every time, not just once
+    root: true    # Run with sudo
+```
+
+### Dotfiles
+
+Modules can include dotfiles to symlink into your home directory.
+
+Create a `dotfiles/` directory in the module with your config files.
+
+Example module with dotfiles (`modules/neovim/module.yaml`):
+
+```yaml
+packages:
+  - neovim
+
+dotfiles: true  # Symlink all files to ~/.config/
+```
+
+Or map specific files:
+
+```yaml
+dotfiles:
+  init.vim: ~/.config/nvim/init.vim
+  coc-settings.json: ~/.config/nvim/coc-settings.json
+```
+
 ## Commands
 
 - `dekl init [host]`: Initialize config for a host (defaults to current hostname)
 - `dekl merge`: Capture current explicit packages into a `system` module
 - `dekl status`: Show diff between declared and installed packages
-- `dekl sync [--dry-run]`: Apply changes to sync system with declared state
+- `dekl sync [--dry-run] [--no-hooks] [--no-dotfiles]`: Apply changes to sync system with declared state
+- `dekl update [--dry-run] [--no-hooks]`: Upgrade system packages
+- `dekl hook list`: List all hooks and their status
+- `dekl hook run <name>`: Manually run a hook
+- `dekl hook reset <name>`: Reset a hook to run again on next sync
 
 ## Development
 
