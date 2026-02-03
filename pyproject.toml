@@ -1,0 +1,31 @@
+[project]
+name = "dekl"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pyyaml>=6.0.3",
+    "typer>=0.21.1",
+]
+
+[project.scripts]
+dekl = "dekl.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["dekl"]
+
+[tool.ty.environment]
+python = ".venv"
+
+[dependency-groups]
+dev = [
+    "nuitka>=2.8.10",
+    "prek>=0.3.1",
+    "pyinstaller>=6.18.0",
+    "ruff>=0.14.14",
+]
