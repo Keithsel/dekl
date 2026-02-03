@@ -2,6 +2,7 @@ import socket
 import typer
 import yaml
 
+from dekl import __version__
 from dekl.constants import CONFIG_DIR, HOSTS_DIR, MODULES_DIR, CONFIG_FILE
 from dekl.config import get_declared_packages, get_host_name, load_host_config
 from dekl.packages import (
@@ -9,16 +10,41 @@ from dekl.packages import (
     get_orphan_packages,
     install_packages,
     remove_packages,
+    upgrade_system,
 )
 from dekl.dotfiles import sync_dotfiles
-from dekl.hooks import run_hook, reset_hook
+from dekl.hooks import (
+    run_module_hook,
+    run_host_hook,
+    reset_hook,
+    list_hooks,
+    force_run_hook,
+)
 from dekl.output import info, success, warning, error, added, removed, header
 
 app = typer.Typer(name='dekl', help='Declarative Arch Linux system manager')
+hook_app = typer.Typer(help='Manage hooks')
+app.add_typer(hook_app, name='hook')
+
+
+def version_callback(value: bool):
+    if value:
+        typer.echo(f'dekl {__version__}')
+        raise typer.Exit()
+
+
+@app.callback()
+def main_callback(
+    version: bool = typer.Option(
+        False, '--version', '-v', callback=version_callback, is_eager=True, help='Show version'
+    ),
+):
+    """Declarative Arch Linux system manager."""
+    pass
 
 
 @app.command()
-def init(host: str = typer.Option(None, '--host', '-H', help='Host name (defaults to your hostname)')):
+def init(host: str = typer.Option(None, '--host', '-H', help='Host name (defaults to hostname)')):
     """Scaffold a new dekl configuration."""
     if host is None:
         host = socket.gethostname()
@@ -124,16 +150,26 @@ def status():
 
 
 @app.command()
-def sync(dry_run: bool = typer.Option(False, '--dry-run', '-n', help='Show what would be done')):
+def sync(
+    dry_run: bool = typer.Option(False, '--dry-run', '-n', help='Show what would be done'),
+    no_hooks: bool = typer.Option(False, '--no-hooks', help='Skip all hooks'),
+    no_dotfiles: bool = typer.Option(False, '--no-dotfiles', help='Skip dotfiles sync'),
+):
     """Sync system to declared state."""
     host_config = load_host_config()
     modules = host_config.get('modules', [])
 
-    # Pre hooks
-    for module_name in modules:
-        if not run_hook(module_name, 'pre', dry_run):
-            error(f'Pre hook failed for {module_name}')
+    # Host pre_sync hook
+    if not no_hooks:
+        if not run_host_hook('pre_sync', dry_run):
+            error('Host pre_sync hook failed')
             raise typer.Exit(1)
+
+        # Module pre hooks
+        for module_name in modules:
+            if not run_module_hook(module_name, 'pre', dry_run):
+                error(f'Pre hook failed for {module_name}')
+                raise typer.Exit(1)
 
     # Packages
     declared = set(get_declared_packages())
@@ -142,9 +178,6 @@ def sync(dry_run: bool = typer.Option(False, '--dry-run', '-n', help='Show what 
 
     to_install = declared - installed
     to_remove = (installed - declared) | orphans
-
-    if not to_install and not to_remove:
-        success('System is in sync')
 
     if to_install:
         header('Installing:')
@@ -155,6 +188,9 @@ def sync(dry_run: bool = typer.Option(False, '--dry-run', '-n', help='Show what 
         header('Removing:')
         for pkg in sorted(to_remove):
             removed(pkg)
+
+    if not to_install and not to_remove:
+        info('Packages in sync')
 
     if not dry_run:
         if to_install:
@@ -168,15 +204,22 @@ def sync(dry_run: bool = typer.Option(False, '--dry-run', '-n', help='Show what 
                 raise typer.Exit(1)
 
     # Dotfiles
-    header('Syncing dotfiles:')
-    if not sync_dotfiles(dry_run):
-        error('Failed to sync dotfiles')
-        raise typer.Exit(1)
+    if not no_dotfiles:
+        header('Syncing dotfiles:')
+        if not sync_dotfiles(dry_run):
+            error('Failed to sync dotfiles')
+            raise typer.Exit(1)
 
     # Post hooks
-    for module_name in modules:
-        if not run_hook(module_name, 'post', dry_run):
-            error(f'Post hook failed for {module_name}')
+    if not no_hooks:
+        for module_name in modules:
+            if not run_module_hook(module_name, 'post', dry_run):
+                error(f'Post hook failed for {module_name}')
+                raise typer.Exit(1)
+
+        # Host post_sync hook
+        if not run_host_hook('post_sync', dry_run):
+            error('Host post_sync hook failed')
             raise typer.Exit(1)
 
     if dry_run:
@@ -186,15 +229,54 @@ def sync(dry_run: bool = typer.Option(False, '--dry-run', '-n', help='Show what 
 
 
 @app.command()
-def hook(
-    module: str = typer.Argument(..., help='Module name'),
-    reset: bool = typer.Option(False, '--reset', '-r', help='Reset hook to run again'),
+def update(
+    dry_run: bool = typer.Option(False, '--dry-run', '-n', help='Show what would be done'),
+    no_hooks: bool = typer.Option(False, '--no-hooks', help='Skip hooks'),
 ):
-    """Manage module hooks."""
-    if reset:
-        reset_hook(module)
+    """Upgrade system packages."""
+    if not no_hooks:
+        if not run_host_hook('pre_update', dry_run):
+            error('Host pre_update hook failed')
+            raise typer.Exit(1)
+
+    if dry_run:
+        info('Would run system upgrade')
     else:
-        info(f'Use --reset to reset hooks for {module}')
+        if not upgrade_system():
+            error('System upgrade failed')
+            raise typer.Exit(1)
+
+    if not no_hooks:
+        if not run_host_hook('post_update', dry_run):
+            error('Host post_update hook failed')
+            raise typer.Exit(1)
+
+    if dry_run:
+        warning('Dry run - no changes made')
+    else:
+        success('Update complete')
+
+
+# Hook subcommands
+@hook_app.command('list')
+def hook_list():
+    """List all hooks and their status."""
+    list_hooks()
+
+
+@hook_app.command('run')
+def hook_run(name: str = typer.Argument(..., help='Hook name (e.g., neovim:post, host:post_sync)')):
+    """Manually run a hook (ignores tracking)."""
+    if not force_run_hook(name):
+        error(f'Hook failed: {name}')
+        raise typer.Exit(1)
+    success(f'Hook completed: {name}')
+
+
+@hook_app.command('reset')
+def hook_reset_cmd(name: str = typer.Argument(..., help='Hook name or module (e.g., neovim:post, neovim, host)')):
+    """Reset a hook to run again on next sync."""
+    reset_hook(name)
 
 
 def main():

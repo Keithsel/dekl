@@ -47,3 +47,10 @@ def remove_packages(packages: list[str]) -> bool:
     helper = get_aur_helper()
     result = subprocess.run([helper, '-Rsu', '--noconfirm'] + packages)
     return result.returncode == 0
+
+
+def upgrade_system() -> bool:
+    """Upgrade all system packages."""
+    helper = get_aur_helper()
+    result = subprocess.run([helper, '-Syu'])
+    return result.returncode == 0
