@@ -225,6 +225,10 @@ def list_hooks():
     modules = host_config.get('modules', [])
 
     host_hooks = get_host_hooks()
+    if not host_hooks and not any(get_module_hooks(m) for m in modules):
+        info('No hooks configured')
+        return
+
     if host_hooks:
         info('Host hooks:')
         for hook_type, hook in host_hooks.items():
