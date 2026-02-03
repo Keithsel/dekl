@@ -3,13 +3,15 @@ import typer
 import yaml
 
 from dekl.constants import CONFIG_DIR, HOSTS_DIR, MODULES_DIR, CONFIG_FILE
-from dekl.config import get_declared_packages, get_host_name
+from dekl.config import get_declared_packages, get_host_name, load_host_config
 from dekl.packages import (
     get_explicit_packages,
     get_orphan_packages,
     install_packages,
     remove_packages,
 )
+from dekl.dotfiles import sync_dotfiles
+from dekl.hooks import run_hook, reset_hook
 from dekl.output import info, success, warning, error, added, removed, header
 
 app = typer.Typer(name='dekl', help='Declarative Arch Linux system manager')
@@ -124,6 +126,16 @@ def status():
 @app.command()
 def sync(dry_run: bool = typer.Option(False, '--dry-run', '-n', help='Show what would be done')):
     """Sync system to declared state."""
+    host_config = load_host_config()
+    modules = host_config.get('modules', [])
+
+    # Pre hooks
+    for module_name in modules:
+        if not run_hook(module_name, 'pre', dry_run):
+            error(f'Pre hook failed for {module_name}')
+            raise typer.Exit(1)
+
+    # Packages
     declared = set(get_declared_packages())
     installed = get_explicit_packages()
     orphans = get_orphan_packages()
@@ -145,23 +157,45 @@ def sync(dry_run: bool = typer.Option(False, '--dry-run', '-n', help='Show what 
         for pkg in sorted(to_remove):
             removed(pkg)
 
+    if not dry_run:
+        if to_install:
+            if not install_packages(list(to_install)):
+                error('Failed to install packages')
+                raise typer.Exit(1)
+
+        if to_remove:
+            if not remove_packages(list(to_remove)):
+                error('Failed to remove packages')
+                raise typer.Exit(1)
+
+    # Dotfiles
+    header('Syncing dotfiles:')
+    if not sync_dotfiles(dry_run):
+        error('Failed to sync dotfiles')
+        raise typer.Exit(1)
+
+    # Post hooks
+    for module_name in modules:
+        if not run_hook(module_name, 'post', dry_run):
+            error(f'Post hook failed for {module_name}')
+            raise typer.Exit(1)
+
     if dry_run:
         warning('Dry run - no changes made')
-        return
+    else:
+        success('Sync complete')
 
-    info('')
 
-    if to_install:
-        if not install_packages(list(to_install)):
-            error('Failed to install packages')
-            raise typer.Exit(1)
-
-    if to_remove:
-        if not remove_packages(list(to_remove)):
-            error('Failed to remove packages')
-            raise typer.Exit(1)
-
-    success('Sync complete')
+@app.command()
+def hook(
+    module: str = typer.Argument(..., help='Module name'),
+    reset: bool = typer.Option(False, '--reset', '-r', help='Reset hook to run again'),
+):
+    """Manage module hooks."""
+    if reset:
+        reset_hook(module)
+    else:
+        info(f'Use --reset to reset hooks for {module}')
 
 
 def main():
