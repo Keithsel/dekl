@@ -16,9 +16,7 @@ Your system matches your declaration, nothing more. Every package belongs to a m
 
 ## Installation
 
-- From AUR (Recommended): Install the `dekl-git` package from the AUR, which builds from source.
-- Binary Release: Download the latest binary from GitHub Releases and place it in your PATH.
-- From Source: See the Development section for building instructions.
+Build from source: See the Development section for building instructions.
 
 ## Quick Start
 
