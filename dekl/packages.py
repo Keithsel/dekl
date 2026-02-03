@@ -10,7 +10,10 @@ def get_explicit_packages() -> set[str]:
         capture_output=True,
         text=True,
     )
-    return set(result.stdout.strip().split('\n'))
+    output = result.stdout.strip()
+    if not output:
+        return set()
+    return set(output.split('\n'))
 
 
 def get_orphan_packages() -> set[str]:
@@ -22,7 +25,10 @@ def get_orphan_packages() -> set[str]:
     )
     if result.returncode != 0:
         return set()
-    return set(result.stdout.strip().split('\n'))
+    output = result.stdout.strip()
+    if not output:
+        return set()
+    return set(output.split('\n'))
 
 
 def install_packages(packages: list[str]) -> bool:

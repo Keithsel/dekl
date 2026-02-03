@@ -18,7 +18,7 @@ app = typer.Typer(name='dekl', help='Declarative Arch Linux system manager')
 
 
 @app.command()
-def init(host: str = typer.Option(None, '--host', '-h', help='Host name (defaults to your hostname)')):
+def init(host: str = typer.Option(None, '--host', '-H', help='Host name (defaults to your hostname)')):
     """Scaffold a new dekl configuration."""
     if host is None:
         host = socket.gethostname()
@@ -145,17 +145,6 @@ def sync(dry_run: bool = typer.Option(False, '--dry-run', '-n', help='Show what 
 
     if not to_install and not to_remove:
         success('System is in sync')
-        return
-
-    if to_install:
-        header('Installing:')
-        for pkg in sorted(to_install):
-            added(pkg)
-
-    if to_remove:
-        header('Removing:')
-        for pkg in sorted(to_remove):
-            removed(pkg)
 
     if not dry_run:
         if to_install:
