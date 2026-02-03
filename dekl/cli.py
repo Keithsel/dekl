@@ -146,6 +146,16 @@ def sync(dry_run: bool = typer.Option(False, '--dry-run', '-n', help='Show what 
     if not to_install and not to_remove:
         success('System is in sync')
 
+    if to_install:
+        header('Installing:')
+        for pkg in sorted(to_install):
+            added(pkg)
+
+    if to_remove:
+        header('Removing:')
+        for pkg in sorted(to_remove):
+            removed(pkg)
+
     if not dry_run:
         if to_install:
             if not install_packages(list(to_install)):
