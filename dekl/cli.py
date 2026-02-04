@@ -13,6 +13,7 @@ from dekl.packages import (
     upgrade_system,
 )
 from dekl.dotfiles import sync_dotfiles
+from dekl.services import sync_services
 from dekl.hooks import (
     run_module_hook,
     run_host_hook,
@@ -154,6 +155,7 @@ def sync(
     dry_run: bool = typer.Option(False, '--dry-run', '-n', help='Show what would be done'),
     no_hooks: bool = typer.Option(False, '--no-hooks', help='Skip all hooks'),
     no_dotfiles: bool = typer.Option(False, '--no-dotfiles', help='Skip dotfiles sync'),
+    no_services: bool = typer.Option(False, '--no-services', help='Skip services sync'),
 ):
     """Sync system to declared state."""
     host_config = load_host_config()
@@ -208,6 +210,13 @@ def sync(
         header('Syncing dotfiles:')
         if not sync_dotfiles(dry_run):
             error('Failed to sync dotfiles')
+            raise typer.Exit(1)
+
+    # Services
+    if not no_services:
+        header('Syncing services:')
+        if not sync_services(dry_run):
+            error('Failed to sync services')
             raise typer.Exit(1)
 
     # Post hooks
