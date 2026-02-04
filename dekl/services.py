@@ -1,7 +1,7 @@
 import subprocess
 from dataclasses import dataclass
 
-from dekl.config import load_host_config, load_module
+from dekl.config import load_host_config, load_module, normalize_service_name
 from dekl.state import load_state, save_state
 from dekl.output import info, success, error, added, removed
 
@@ -21,17 +21,14 @@ def parse_service_config(config) -> Service | None:
         return None
 
     if isinstance(config, str):
-        name = config
-        if not name.endswith('.service') and not name.endswith('.socket') and not name.endswith('.timer'):
-            name = f'{name}.service'
+        name = normalize_service_name(config)
         return Service(name=name)
 
     if isinstance(config, dict):
         name = config.get('name')
         if not name:
             return None
-        if not name.endswith('.service') and not name.endswith('.socket') and not name.endswith('.timer'):
-            name = f'{name}.service'
+        name = normalize_service_name(name)
         return Service(
             name=name,
             user=config.get('user', False),

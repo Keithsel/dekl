@@ -9,6 +9,9 @@ from dekl.config import (
     get_host_name,
     load_host_config,
     validate_modules,
+    ensure_module,
+    save_module,
+    normalize_service_name,
 )
 from dekl.packages import (
     get_explicit_packages,
@@ -301,45 +304,22 @@ def add(
     dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
 ):
     """Add a package to a module and install it."""
-    target_module = module or 'local'
-    module_path = MODULES_DIR / target_module
-    module_file = module_path / 'module.yaml'
-
-    if not module_path.exists():
-        module_path.mkdir(parents=True)
-        info(f'Creating module: {target_module}')
-
-        host_name = get_host_name()
-        host_file = HOSTS_DIR / f'{host_name}.yaml'
-        with open(host_file) as f:
-            host_config = yaml.safe_load(f) or {}
-        if target_module not in host_config.get('modules', []):
-            host_config.setdefault('modules', []).append(target_module)
-            if not dry_run:
-                with open(host_file, 'w') as f:
-                    yaml.dump(host_config, f, default_flow_style=False)
-            info(f'Added {target_module} to host config')
-
-    if module_file.exists():
-        with open(module_file) as f:
-            module_data = yaml.safe_load(f) or {}
-    else:
-        module_data = {}
+    target = module or 'local'
+    module_file, module_data = ensure_module(target, dry_run)
 
     packages = module_data.setdefault('packages', [])
     if package in packages:
-        warning(f'{package} already in {target_module}')
+        warning(f'{package} already in {target}')
         return
 
     packages.append(package)
-    added(f'{package} → {target_module}')
+    added(f'{package} → {target}')
 
     if dry_run:
         info('Dry run - no changes made')
         return
 
-    with open(module_file, 'w') as f:
-        yaml.dump(module_data, f, default_flow_style=False)
+    save_module(module_file, module_data)
 
     if install_packages([package]):
         success(f'Installed {package}')
@@ -398,62 +378,35 @@ def enable(
     dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
 ):
     """Add a service to a module and enable it."""
-    target_module = module or 'local'
-    module_path = MODULES_DIR / target_module
-    module_file = module_path / 'module.yaml'
-
-    if not module_path.exists():
-        module_path.mkdir(parents=True)
-        info(f'Creating module: {target_module}')
-
-        host_name = get_host_name()
-        host_file = HOSTS_DIR / f'{host_name}.yaml'
-        with open(host_file) as f:
-            host_config = yaml.safe_load(f) or {}
-        if target_module not in host_config.get('modules', []):
-            host_config.setdefault('modules', []).append(target_module)
-            if not dry_run:
-                with open(host_file, 'w') as f:
-                    yaml.dump(host_config, f, default_flow_style=False)
-            info(f'Added {target_module} to host config')
-
-    if module_file.exists():
-        with open(module_file) as f:
-            module_data = yaml.safe_load(f) or {}
-    else:
-        module_data = {}
-
-    svc_name = service
-    if not any(svc_name.endswith(s) for s in ['.service', '.socket', '.timer']):
-        svc_name = f'{svc_name}.service'
+    target = module or 'local'
+    module_file, module_data = ensure_module(target, dry_run)
+    svc_name = normalize_service_name(service)
 
     services = module_data.setdefault('services', [])
     for i, existing in enumerate(services):
         existing_name = existing if isinstance(existing, str) else existing.get('name', '')
-        if not any(existing_name.endswith(s) for s in ['.service', '.socket', '.timer']):
-            existing_name = f'{existing_name}.service'
+        existing_name = normalize_service_name(existing_name)
 
         if existing_name == svc_name:
             if isinstance(existing, dict) and not existing.get('enabled', True):
                 services[i] = {'name': service, 'user': user, 'enabled': True} if user else service
-                info(f'Re-enabling {svc_name} in {target_module}')
+                info(f'Re-enabling {svc_name} in {target}')
                 break
             else:
-                warning(f'{svc_name} already enabled in {target_module}')
+                warning(f'{svc_name} already enabled in {target}')
                 return
     else:
         if user:
             services.append({'name': service, 'user': True})
         else:
             services.append(service)
-        added(f'{svc_name} → {target_module}')
+        added(f'{svc_name} → {target}')
 
     if dry_run:
         info('Dry run - no changes made')
         return
 
-    with open(module_file, 'w') as f:
-        yaml.dump(module_data, f, default_flow_style=False)
+    save_module(module_file, module_data)
 
     user_flag = ' (user)' if user else ''
     if enable_service(svc_name, user):
@@ -472,9 +425,7 @@ def disable(
     dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
 ):
     """Disable a service (set enabled: false or remove from module)."""
-    svc_name = service
-    if not any(svc_name.endswith(s) for s in ['.service', '.socket', '.timer']):
-        svc_name = f'{svc_name}.service'
+    svc_name = normalize_service_name(service)
 
     host = load_host_config()
     found_in = []
@@ -493,8 +444,7 @@ def disable(
         services = module_data.get('services', [])
         for i, existing in enumerate(services):
             existing_name = existing if isinstance(existing, str) else existing.get('name', '')
-            if not any(existing_name.endswith(s) for s in ['.service', '.socket', '.timer']):
-                existing_name = f'{existing_name}.service'
+            existing_name = normalize_service_name(existing_name)
 
             if existing_name == svc_name:
                 found_in.append(module_name)
