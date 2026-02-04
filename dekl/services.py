@@ -2,6 +2,7 @@ import subprocess
 from dataclasses import dataclass
 
 from dekl.config import load_host_config, load_module
+from dekl.state import load_state, save_state
 from dekl.output import info, success, error, added, removed
 
 
@@ -62,7 +63,6 @@ def get_declared_services() -> list[Service]:
     for module_name in host.get('modules', []):
         all_services.extend(get_module_services(module_name))
 
-    # Deduplicate by name (keep first occurrence)
     seen = set()
     unique = []
     for service in all_services:
@@ -110,20 +110,46 @@ def disable_service(name: str, user: bool = False) -> bool:
     return result.returncode == 0
 
 
+def get_tracked_services() -> dict[str, bool]:
+    """Get services we previously enabled. Returns {name: user_flag}."""
+    state = load_state()
+    return state.get('services', {})
+
+
+def save_tracked_services(services: dict[str, bool]):
+    """Save services we've enabled."""
+    state = load_state()
+    state['services'] = services
+    save_state(state)
+
+
 def sync_services(dry_run: bool = False) -> bool:
     """Sync services to declared state. Returns True if successful."""
     declared = get_declared_services()
+    tracked = get_tracked_services()
+
+    declared_map = {}
+    for service in declared:
+        if service.enabled:
+            declared_map[service.name] = service.user
 
     to_enable = []
+    for service in declared:
+        if service.enabled:
+            current = is_service_enabled(service.name, service.user)
+            if not current:
+                to_enable.append(service)
+
     to_disable = []
+    for name, user in tracked.items():
+        if name not in declared_map:
+            if is_service_enabled(name, user):
+                to_disable.append(Service(name=name, user=user, enabled=False))
 
     for service in declared:
-        current = is_service_enabled(service.name, service.user)
-
-        if service.enabled and not current:
-            to_enable.append(service)
-        elif not service.enabled and current:
-            to_disable.append(service)
+        if not service.enabled:
+            if is_service_enabled(service.name, service.user):
+                to_disable.append(service)
 
     if not to_enable and not to_disable:
         info('Services in sync')
@@ -153,5 +179,7 @@ def sync_services(dry_run: bool = False) -> bool:
             error(f'Failed to disable: {service.name}')
             return False
         success(f'Disabled: {service.name}')
+
+    save_tracked_services(declared_map)
 
     return True
