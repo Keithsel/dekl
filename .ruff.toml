@@ -4,12 +4,11 @@ cache-dir = ".ruff_cache"
 target-version = "py311"
 exclude = [
     ".venv",
+    ".ruff_cache",
     "archive",
-    "dify",
-    "docs",
-    "misc",
-    "node_modules",
-    "tei",
+    "build",
+    "dist",
+    "dekl.spec",
 ]
 
 [lint]
@@ -32,10 +31,6 @@ preview = true
 [lint.isort]
 lines-between-types = 1
 order-by-type = true
-
-[lint.per-file-ignores]
-"autoqa/agents/*.py" = ["TC"]
-"autoqa/**/__init__.py" = ["F401"]
 
 [format]
 preview = true
