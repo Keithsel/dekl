@@ -13,7 +13,7 @@ from dekl.packages import (
     upgrade_system,
 )
 from dekl.dotfiles import sync_dotfiles
-from dekl.services import sync_services
+from dekl.services import sync_services, enable_service, disable_service
 from dekl.hooks import (
     run_module_hook,
     run_host_hook,
@@ -264,6 +264,243 @@ def update(
         warning('Dry run - no changes made')
     else:
         success('Update complete')
+
+
+@app.command()
+def add(
+    package: str = typer.Argument(..., help='Package to add'),
+    module: str = typer.Option(None, '-m', '--module', help='Target module (default: local)'),
+    dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
+):
+    """Add a package to a module and install it."""
+    target_module = module or 'local'
+    module_path = MODULES_DIR / target_module
+    module_file = module_path / 'module.yaml'
+
+    if not module_path.exists():
+        module_path.mkdir(parents=True)
+        module_data = {'packages': []}
+        info(f'Creating module: {target_module}')
+
+        host_name = get_host_name()
+        host_file = HOSTS_DIR / f'{host_name}.yaml'
+        with open(host_file) as f:
+            host_config = yaml.safe_load(f) or {}
+        if target_module not in host_config.get('modules', []):
+            host_config.setdefault('modules', []).append(target_module)
+            if not dry_run:
+                with open(host_file, 'w') as f:
+                    yaml.dump(host_config, f, default_flow_style=False)
+            info(f'Added {target_module} to host config')
+    else:
+        with open(module_file) as f:
+            module_data = yaml.safe_load(f) or {}
+
+    packages = module_data.setdefault('packages', [])
+    if package in packages:
+        warning(f'{package} already in {target_module}')
+        return
+
+    packages.append(package)
+    added(f'{package} → {target_module}')
+
+    if dry_run:
+        info('Dry run - no changes made')
+        return
+
+    with open(module_file, 'w') as f:
+        yaml.dump(module_data, f, default_flow_style=False)
+
+    if install_packages([package]):
+        success(f'Installed {package}')
+    else:
+        error(f'Failed to install {package}')
+        raise typer.Exit(1)
+
+
+@app.command()
+def drop(
+    package: str = typer.Argument(..., help='Package to remove'),
+    dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
+):
+    """Remove a package from all modules and uninstall it."""
+    host = load_host_config()
+    found_in = []
+
+    for module_name in host.get('modules', []):
+        module_file = MODULES_DIR / module_name / 'module.yaml'
+        if not module_file.exists():
+            continue
+
+        with open(module_file) as f:
+            module_data = yaml.safe_load(f) or {}
+
+        packages = module_data.get('packages', [])
+        if package in packages:
+            found_in.append(module_name)
+            packages.remove(package)
+            removed(f'{package} ← {module_name}')
+
+            if not dry_run:
+                with open(module_file, 'w') as f:
+                    yaml.dump(module_data, f, default_flow_style=False)
+
+    if not found_in:
+        warning(f'{package} not found in any module')
+        return
+
+    if dry_run:
+        info('Dry run - no changes made')
+        return
+
+    if remove_packages([package]):
+        success(f'Removed {package}')
+    else:
+        error(f'Failed to remove {package}')
+        raise typer.Exit(1)
+
+
+@app.command()
+def enable(
+    service: str = typer.Argument(..., help='Service to enable'),
+    module: str = typer.Option(None, '-m', '--module', help='Target module (default: local)'),
+    user: bool = typer.Option(False, '--user', help='User service (systemctl --user)'),
+    dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
+):
+    """Add a service to a module and enable it."""
+    target_module = module or 'local'
+    module_path = MODULES_DIR / target_module
+    module_file = module_path / 'module.yaml'
+
+    if not module_path.exists():
+        module_path.mkdir(parents=True)
+        module_data = {'services': []}
+        info(f'Creating module: {target_module}')
+
+        host_name = get_host_name()
+        host_file = HOSTS_DIR / f'{host_name}.yaml'
+        with open(host_file) as f:
+            host_config = yaml.safe_load(f) or {}
+        if target_module not in host_config.get('modules', []):
+            host_config.setdefault('modules', []).append(target_module)
+            if not dry_run:
+                with open(host_file, 'w') as f:
+                    yaml.dump(host_config, f, default_flow_style=False)
+            info(f'Added {target_module} to host config')
+    else:
+        with open(module_file) as f:
+            module_data = yaml.safe_load(f) or {}
+
+    svc_name = service
+    if not any(svc_name.endswith(s) for s in ['.service', '.socket', '.timer']):
+        svc_name = f'{svc_name}.service'
+
+    services = module_data.setdefault('services', [])
+    for i, existing in enumerate(services):
+        existing_name = existing if isinstance(existing, str) else existing.get('name', '')
+        if not any(existing_name.endswith(s) for s in ['.service', '.socket', '.timer']):
+            existing_name = f'{existing_name}.service'
+
+        if existing_name == svc_name:
+            if isinstance(existing, dict) and not existing.get('enabled'):
+                services[i] = {'name': service, 'user': user, 'enabled': True} if user else service
+                info(f'Re-enabling {svc_name} in {target_module}')
+            else:
+                warning(f'{svc_name} already enabled in {target_module}')
+                return
+            break
+    else:
+        if user:
+            services.append({'name': service, 'user': True})
+        else:
+            services.append(service)
+        added(f'{svc_name} → {target_module}')
+
+    if dry_run:
+        info('Dry run - no changes made')
+        return
+
+    with open(module_file, 'w') as f:
+        yaml.dump(module_data, f, default_flow_style=False)
+
+    user_flag = ' (user)' if user else ''
+    if enable_service(svc_name, user):
+        success(f'Enabled {svc_name}{user_flag}')
+    else:
+        error(f'Failed to enable {svc_name}')
+        raise typer.Exit(1)
+
+
+@app.command()
+def disable(
+    service: str = typer.Argument(..., help='Service to disable'),
+    module: str = typer.Option(None, '-m', '--module', help='Target module (searches all if not specified)'),
+    remove: bool = typer.Option(False, '-r', '--remove', help='Remove from module instead of setting enabled: false'),
+    user: bool = typer.Option(False, '--user', help='User service (systemctl --user)'),
+    dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
+):
+    """Disable a service (set enabled: false or remove from module)."""
+    svc_name = service
+    if not any(svc_name.endswith(s) for s in ['.service', '.socket', '.timer']):
+        svc_name = f'{svc_name}.service'
+
+    host = load_host_config()
+    found_in = []
+    user_flag_detected = user
+
+    modules_to_search = [module] if module else host.get('modules', [])
+
+    for module_name in modules_to_search:
+        module_file = MODULES_DIR / module_name / 'module.yaml'
+        if not module_file.exists():
+            continue
+
+        with open(module_file) as f:
+            module_data = yaml.safe_load(f) or {}
+
+        services = module_data.get('services', [])
+        for i, existing in enumerate(services):
+            existing_name = existing if isinstance(existing, str) else existing.get('name', '')
+            if not any(existing_name.endswith(s) for s in ['.service', '.socket', '.timer']):
+                existing_name = f'{existing_name}.service'
+
+            if existing_name == svc_name:
+                found_in.append(module_name)
+
+                if isinstance(existing, dict) and existing.get('user'):
+                    user_flag_detected = True
+
+                if remove:
+                    services.pop(i)
+                    removed(f'{svc_name} ← {module_name}')
+                else:
+                    services[i] = {
+                        'name': service,
+                        'enabled': False,
+                    }
+                    if user_flag_detected:
+                        services[i]['user'] = True
+                    info(f'{svc_name} → enabled: false in {module_name}')
+
+                if not dry_run:
+                    with open(module_file, 'w') as f:
+                        yaml.dump(module_data, f, default_flow_style=False)
+                break
+
+    if not found_in:
+        warning(f'{svc_name} not found in any module')
+        return
+
+    if dry_run:
+        info('Dry run - no changes made')
+        return
+
+    user_str = ' (user)' if user_flag_detected else ''
+    if disable_service(svc_name, user_flag_detected):
+        success(f'Disabled {svc_name}{user_str}')
+    else:
+        error(f'Failed to disable {svc_name}')
+        raise typer.Exit(1)
 
 
 # Hook subcommands
