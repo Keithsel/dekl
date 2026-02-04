@@ -4,7 +4,12 @@ import yaml
 
 from dekl import __version__
 from dekl.constants import CONFIG_DIR, HOSTS_DIR, MODULES_DIR, CONFIG_FILE
-from dekl.config import get_declared_packages, get_host_name, load_host_config
+from dekl.config import (
+    get_declared_packages,
+    get_host_name,
+    load_host_config,
+    validate_modules,
+)
 from dekl.packages import (
     get_explicit_packages,
     get_orphan_packages,
@@ -12,8 +17,13 @@ from dekl.packages import (
     remove_packages,
     upgrade_system,
 )
-from dekl.dotfiles import sync_dotfiles
-from dekl.services import sync_services, enable_service, disable_service
+from dekl.dotfiles import sync_dotfiles, get_all_dotfiles
+from dekl.services import (
+    sync_services,
+    enable_service,
+    disable_service,
+    get_declared_services,
+)
 from dekl.hooks import (
     run_module_hook,
     run_host_hook,
@@ -125,6 +135,12 @@ def status():
     """Show diff between declared and current state."""
     host = get_host_name()
 
+    missing = validate_modules()
+    if missing:
+        warning('Missing modules:')
+        for m in missing:
+            removed(m)
+
     declared = set(get_declared_packages())
     installed = get_explicit_packages()
     orphans = get_orphan_packages()
@@ -132,8 +148,11 @@ def status():
     to_install = declared - installed
     to_remove = (installed - declared) | orphans
 
+    dotfiles = get_all_dotfiles()
+    services = get_declared_services()
+
     info(f'Host: {host}')
-    info(f'Declared: {len(declared)} packages')
+    info(f'Declared: {len(declared)} packages, {len(dotfiles)} dotfiles, {len(services)} services')
     info(f'Installed: {len(installed)} explicit, {len(orphans)} orphans')
 
     if to_install:
@@ -146,7 +165,7 @@ def status():
         for pkg in sorted(to_remove):
             removed(pkg)
 
-    if not to_install and not to_remove:
+    if not to_install and not to_remove and not missing:
         success('System is in sync')
 
 
@@ -158,6 +177,15 @@ def sync(
     no_services: bool = typer.Option(False, '--no-services', help='Skip services sync'),
 ):
     """Sync system to declared state."""
+
+    missing = validate_modules()
+    if missing:
+        error('Missing modules:')
+        for m in missing:
+            removed(m)
+        error('Fix your host config or create the missing modules.')
+        raise typer.Exit(1)
+
     host_config = load_host_config()
     modules = host_config.get('modules', [])
 
@@ -279,7 +307,6 @@ def add(
 
     if not module_path.exists():
         module_path.mkdir(parents=True)
-        module_data = {'packages': []}
         info(f'Creating module: {target_module}')
 
         host_name = get_host_name()
@@ -292,9 +319,12 @@ def add(
                 with open(host_file, 'w') as f:
                     yaml.dump(host_config, f, default_flow_style=False)
             info(f'Added {target_module} to host config')
-    else:
+
+    if module_file.exists():
         with open(module_file) as f:
             module_data = yaml.safe_load(f) or {}
+    else:
+        module_data = {}
 
     packages = module_data.setdefault('packages', [])
     if package in packages:
@@ -374,7 +404,6 @@ def enable(
 
     if not module_path.exists():
         module_path.mkdir(parents=True)
-        module_data = {'services': []}
         info(f'Creating module: {target_module}')
 
         host_name = get_host_name()
@@ -387,9 +416,12 @@ def enable(
                 with open(host_file, 'w') as f:
                     yaml.dump(host_config, f, default_flow_style=False)
             info(f'Added {target_module} to host config')
-    else:
+
+    if module_file.exists():
         with open(module_file) as f:
             module_data = yaml.safe_load(f) or {}
+    else:
+        module_data = {}
 
     svc_name = service
     if not any(svc_name.endswith(s) for s in ['.service', '.socket', '.timer']):
@@ -402,13 +434,13 @@ def enable(
             existing_name = f'{existing_name}.service'
 
         if existing_name == svc_name:
-            if isinstance(existing, dict) and not existing.get('enabled'):
+            if isinstance(existing, dict) and not existing.get('enabled', True):
                 services[i] = {'name': service, 'user': user, 'enabled': True} if user else service
                 info(f'Re-enabling {svc_name} in {target_module}')
+                break
             else:
                 warning(f'{svc_name} already enabled in {target_module}')
                 return
-            break
     else:
         if user:
             services.append({'name': service, 'user': True})

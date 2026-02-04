@@ -27,7 +27,7 @@ def load_host_config() -> dict:
     if not path.exists():
         raise FileNotFoundError(f'Host config not found: {path}')
     with open(path) as f:
-        return yaml.safe_load(f)
+        return yaml.safe_load(f) or {}
 
 
 def load_module(name: str) -> dict:
@@ -36,12 +36,28 @@ def load_module(name: str) -> dict:
     if not path.exists():
         raise FileNotFoundError(f'Module not found: {name}')
     with open(path) as f:
-        return yaml.safe_load(f)
+        return yaml.safe_load(f) or {}
 
 
 def get_module_path(name: str):
     """Get the path to a module directory."""
     return MODULES_DIR / name
+
+
+def module_exists(name: str) -> bool:
+    """Check if a module exists."""
+    path = MODULES_DIR / name / 'module.yaml'
+    return path.exists()
+
+
+def validate_modules() -> list[str]:
+    """Validate all modules in host config exist. Returns list of missing modules."""
+    host = load_host_config()
+    missing = []
+    for module_name in host.get('modules', []):
+        if not module_exists(module_name):
+            missing.append(module_name)
+    return missing
 
 
 def get_declared_packages() -> list[str]:
@@ -50,15 +66,22 @@ def get_declared_packages() -> list[str]:
     packages = []
 
     for module_name in host.get('modules', []):
-        module = load_module(module_name)
-        packages.extend(module.get('packages', []))
+        try:
+            module = load_module(module_name)
+            packages.extend(module.get('packages', []))
+        except FileNotFoundError:
+            # Skip missing modules (will be caught by validate_modules)
+            pass
 
     return list(set(packages))
 
 
 def get_aur_helper() -> str:
     """Get configured or detected AUR helper."""
-    host = load_host_config()
+    try:
+        host = load_host_config()
+    except (RuntimeError, FileNotFoundError):
+        host = {}
 
     if 'aur_helper' in host:
         helper = host['aur_helper']
