@@ -273,7 +273,7 @@ def sync(
                 error(f'Cannot continue: no AUR helper available and {configured_helper} is configured.')
                 info('Either bootstrap it, install manually, or set aur_helper: pacman in host config.')
                 raise typer.Exit(1)
-        elif available_helper != configured_helper and not shutil.which(configured_helper):
+        elif available_helper != configured_helper:
             warning(f'Configured helper "{configured_helper}" not found, but "{available_helper}" is available.')
             if dry_run:
                 info(f'Would bootstrap {configured_helper}')
@@ -318,7 +318,9 @@ def sync(
             raise typer.Exit(0)
 
     if not dry_run:
-        require_configured_helper_or_exit()
+        if plan.to_install or to_remove:
+            require_configured_helper_or_exit()
+
         if plan.to_install:
             if not install_packages(plan.to_install):
                 error('Failed to install packages')

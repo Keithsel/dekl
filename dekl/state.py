@@ -15,4 +15,4 @@ def save_state(state: dict):
     """Save state."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     with open(STATE_FILE, 'w') as f:
-        yaml.dump(state, f)
+        yaml.safe_dump(state, f, sort_keys=False, default_flow_style=False)
