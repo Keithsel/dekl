@@ -3,7 +3,7 @@ import yaml
 from pathlib import Path
 
 from dekl.constants import CONFIG_FILE, HOSTS_DIR, MODULES_DIR
-from dekl.output import info
+from dekl.output import info, warning
 
 
 def load_config() -> dict:
@@ -63,7 +63,7 @@ def validate_modules() -> list[str]:
 
 
 def get_declared_packages() -> list[str]:
-    """Get all packages from all enabled modules."""
+    """Get all packages from enabled modules."""
     host = load_host_config()
     packages = []
 
@@ -72,10 +72,16 @@ def get_declared_packages() -> list[str]:
             module = load_module(module_name)
             packages.extend(module.get('packages', []))
         except FileNotFoundError:
-            # Skip missing modules (will be caught by validate_modules)
             pass
 
-    return list(set(packages))
+    # Stable de-dupe preserving first-seen order
+    seen = set()
+    unique = []
+    for p in packages:
+        if p not in seen:
+            seen.add(p)
+            unique.append(p)
+    return unique
 
 
 def get_aur_helper() -> str:
@@ -89,6 +95,8 @@ def get_aur_helper() -> str:
         helper = host['aur_helper']
         if shutil.which(helper):
             return helper
+        else:
+            warning(f'Configured AUR helper "{helper}" not found, falling back to pacman')
 
     for helper in ['paru', 'yay']:
         if shutil.which(helper):
@@ -98,13 +106,16 @@ def get_aur_helper() -> str:
 
 
 def ensure_module(name: str, dry_run: bool = False) -> tuple[Path, dict]:
-    """Ensure module exists, add to host config if new. Returns (module_file, module_data)."""
+    """Ensure module exists. Returns (module_file, module_data)."""
     module_path = MODULES_DIR / name
     module_file = module_path / 'module.yaml'
 
     if not module_path.exists():
-        module_path.mkdir(parents=True)
-        info(f'Creating module: {name}')
+        if dry_run:
+            info(f'Would create module: {name}')
+        else:
+            module_path.mkdir(parents=True)
+            info(f'Creating module: {name}')
 
         host_name = get_host_name()
         host_file = HOSTS_DIR / f'{host_name}.yaml'
@@ -113,9 +124,10 @@ def ensure_module(name: str, dry_run: bool = False) -> tuple[Path, dict]:
         if name not in host_config.get('modules', []):
             host_config.setdefault('modules', []).append(name)
             if not dry_run:
-                with open(host_file, 'w') as f:
-                    yaml.dump(host_config, f, default_flow_style=False)
-            info(f'Added {name} to host config')
+                save_yaml(host_file, host_config)
+                info(f'Added {name} to host config')
+            else:
+                info(f'Would add {name} to host config')
 
     if module_file.exists():
         with open(module_file) as f:
@@ -127,9 +139,14 @@ def ensure_module(name: str, dry_run: bool = False) -> tuple[Path, dict]:
 
 
 def save_module(module_file: Path, module_data: dict):
-    """Save module data to file."""
-    with open(module_file, 'w') as f:
-        yaml.dump(module_data, f, default_flow_style=False)
+    """Save module data."""
+    save_yaml(module_file, module_data)
+
+
+def save_yaml(path: Path, data: dict):
+    """Save YAML consistently."""
+    with open(path, 'w') as f:
+        yaml.safe_dump(data, f, sort_keys=False, default_flow_style=False)
 
 
 def normalize_service_name(name: str) -> str:

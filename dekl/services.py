@@ -60,11 +60,13 @@ def get_declared_services() -> list[Service]:
     for module_name in host.get('modules', []):
         all_services.extend(get_module_services(module_name))
 
+    # Unique by (name, user)
     seen = set()
     unique = []
     for service in all_services:
-        if service.name not in seen:
-            seen.add(service.name)
+        key = (service.name, service.user)
+        if key not in seen:
+            seen.add(key)
             unique.append(service)
 
     return unique
@@ -108,15 +110,15 @@ def disable_service(name: str, user: bool = False) -> bool:
 
 
 def get_tracked_services() -> dict[str, bool]:
-    """Get services we previously enabled. Returns {name: user_flag}."""
+    """Get services we previously enabled. Returns {name|user: True}."""
     state = load_state()
     return state.get('services', {})
 
 
-def save_tracked_services(services: dict[str, bool]):
+def save_tracked_services(services: list[Service]):
     """Save services we've enabled."""
     state = load_state()
-    state['services'] = services
+    state['services'] = {f'{s.name}|{s.user}': True for s in services if s.enabled}
     save_state(state)
 
 
@@ -128,7 +130,7 @@ def sync_services(dry_run: bool = False) -> bool:
     declared_map = {}
     for service in declared:
         if service.enabled:
-            declared_map[service.name] = service.user
+            declared_map[f'{service.name}|{service.user}'] = True
 
     to_enable = []
     for service in declared:
@@ -138,8 +140,10 @@ def sync_services(dry_run: bool = False) -> bool:
                 to_enable.append(service)
 
     to_disable = []
-    for name, user in tracked.items():
-        if name not in declared_map:
+    for key in tracked:
+        if key not in declared_map:
+            name, user_str = key.split('|', 1)
+            user = user_str == 'True'
             if is_service_enabled(name, user):
                 to_disable.append(Service(name=name, user=user, enabled=False))
 
@@ -177,6 +181,6 @@ def sync_services(dry_run: bool = False) -> bool:
             return False
         success(f'Disabled: {service.name}')
 
-    save_tracked_services(declared_map)
+    save_tracked_services(declared)
 
     return True

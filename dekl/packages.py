@@ -45,7 +45,7 @@ def remove_packages(packages: list[str]) -> bool:
     if not packages:
         return True
     helper = get_aur_helper()
-    result = subprocess.run([helper, '-Rsu', '--noconfirm'] + packages)
+    result = subprocess.run([helper, '-Rsu'] + sorted(packages))
     return result.returncode == 0
 
 

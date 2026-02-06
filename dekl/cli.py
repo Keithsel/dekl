@@ -11,6 +11,7 @@ from dekl.config import (
     validate_modules,
     ensure_module,
     save_module,
+    save_yaml,
     normalize_service_name,
 )
 from dekl.packages import (
@@ -79,10 +80,10 @@ def init(host: str = typer.Option(None, '--host', '-H', help='Host name (default
     if not host_file.exists():
         host_config = {
             'aur_helper': 'paru',
+            'auto_prune': True,
             'modules': ['base'],
         }
-        with open(host_file, 'w') as f:
-            yaml.dump(host_config, f)
+        save_yaml(host_file, host_config)
         success(f'Created {host_file}')
     else:
         info(f'Host config already exists: {host_file}')
@@ -90,8 +91,7 @@ def init(host: str = typer.Option(None, '--host', '-H', help='Host name (default
     base_module = MODULES_DIR / 'base' / 'module.yaml'
     if not base_module.exists():
         module = {'packages': ['base']}
-        with open(base_module, 'w') as f:
-            yaml.dump(module, f)
+        save_yaml(base_module, module)
         success(f'Created {base_module}')
     else:
         info(f'Base module already exists: {base_module}')
@@ -123,8 +123,7 @@ def merge():
     module = {'packages': packages}
     module_path = system_dir / 'module.yaml'
 
-    with open(module_path, 'w') as f:
-        yaml.dump(module, f, default_flow_style=False)
+    save_yaml(module_path, module)
 
     success(f'Captured {len(packages)} packages into system module')
     info('')
@@ -168,6 +167,10 @@ def status():
         for pkg in sorted(to_remove):
             removed(pkg)
 
+    if dotfiles:
+        header('Dotfiles:')
+        sync_dotfiles(True)
+
     if not to_install and not to_remove and not missing:
         success('System is in sync')
 
@@ -175,30 +178,33 @@ def status():
 @app.command()
 def sync(
     dry_run: bool = typer.Option(False, '--dry-run', '-n', help='Show what would be done'),
+    prune: bool | None = typer.Option(None, '--prune/--no-prune', help='Remove undeclared packages'),
+    yes: bool = typer.Option(False, '--yes', '-y', help='Skip confirmation prompts'),
     no_hooks: bool = typer.Option(False, '--no-hooks', help='Skip all hooks'),
     no_dotfiles: bool = typer.Option(False, '--no-dotfiles', help='Skip dotfiles sync'),
     no_services: bool = typer.Option(False, '--no-services', help='Skip services sync'),
 ):
     """Sync system to declared state."""
-
     missing = validate_modules()
     if missing:
         error('Missing modules:')
         for m in missing:
-            removed(m)
+            warning(f'  {m}')
         error('Fix your host config or create the missing modules.')
         raise typer.Exit(1)
 
     host_config = load_host_config()
     modules = host_config.get('modules', [])
+    
+    # Resolve prune mode: CLI flag > host config > default
+    auto_prune = host_config.get('auto_prune', True)
+    prune_enabled = auto_prune if prune is None else prune
 
-    # Host pre_sync hook
+    # Pre hooks
     if not no_hooks:
         if not run_host_hook('pre_sync', dry_run):
             error('Host pre_sync hook failed')
             raise typer.Exit(1)
-
-        # Module pre hooks
         for module_name in modules:
             if not run_module_hook(module_name, 'pre', dry_run):
                 error(f'Pre hook failed for {module_name}')
@@ -209,30 +215,48 @@ def sync(
     installed = get_explicit_packages()
     orphans = get_orphan_packages()
 
-    to_install = declared - installed
-    to_remove = (installed - declared) | orphans
+    to_install = sorted(declared - installed)
+    
+    if prune_enabled:
+        to_remove_undeclared = sorted(installed - declared)
+        to_remove_orphans = sorted(orphans)
+    else:
+        to_remove_undeclared = []
+        to_remove_orphans = []
 
     if to_install:
         header('Installing:')
-        for pkg in sorted(to_install):
+        for pkg in to_install:
             added(pkg)
 
-    if to_remove:
-        header('Removing:')
-        for pkg in sorted(to_remove):
+    if to_remove_undeclared:
+        header('Removing undeclared:')
+        for pkg in to_remove_undeclared:
             removed(pkg)
 
-    if not to_install and not to_remove:
+    if to_remove_orphans:
+        header('Removing orphans:')
+        for pkg in to_remove_orphans:
+            removed(pkg)
+
+    if not to_install and not to_remove_undeclared and not to_remove_orphans:
         info('Packages in sync')
+
+    to_remove = to_remove_undeclared + to_remove_orphans
+    
+    if not dry_run and to_remove and not yes:
+        if not typer.confirm(f'Remove {len(to_remove)} packages?'):
+            warning('Aborted')
+            raise typer.Exit(0)
 
     if not dry_run:
         if to_install:
-            if not install_packages(list(to_install)):
+            if not install_packages(to_install):
                 error('Failed to install packages')
                 raise typer.Exit(1)
 
         if to_remove:
-            if not remove_packages(list(to_remove)):
+            if not remove_packages(to_remove):
                 error('Failed to remove packages')
                 raise typer.Exit(1)
 
@@ -256,8 +280,6 @@ def sync(
             if not run_module_hook(module_name, 'post', dry_run):
                 error(f'Post hook failed for {module_name}')
                 raise typer.Exit(1)
-
-        # Host post_sync hook
         if not run_host_hook('post_sync', dry_run):
             error('Host post_sync hook failed')
             raise typer.Exit(1)
@@ -352,8 +374,7 @@ def drop(
             removed(f'{package} ← {module_name}')
 
             if not dry_run:
-                with open(module_file, 'w') as f:
-                    yaml.dump(module_data, f, default_flow_style=False)
+                save_yaml(module_file, module_data)
 
     if not found_in:
         warning(f'{package} not found in any module')
@@ -465,8 +486,7 @@ def disable(
                     info(f'{svc_name} → enabled: false in {module_name}')
 
                 if not dry_run:
-                    with open(module_file, 'w') as f:
-                        yaml.dump(module_data, f, default_flow_style=False)
+                    save_yaml(module_file, module_data)
                 break
 
     if not found_in:
