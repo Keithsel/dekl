@@ -1,3 +1,4 @@
+import shutil
 import socket
 import typer
 import yaml
@@ -35,8 +36,8 @@ from dekl.hooks import (
     list_hooks,
     force_run_hook,
 )
-from dekl.plan import compute_package_plan, resolve_prune_mode
-from dekl.bootstrap import has_aur_helper, bootstrap_aur_helper
+from dekl.plan import PackagePlan, compute_package_plan, resolve_prune_mode
+from dekl.bootstrap import bootstrap_aur_helper, get_available_aur_helper
 from dekl.output import info, success, warning, error, added, removed, header
 
 app = typer.Typer(name='dekl', help='Declarative Arch Linux system manager')
@@ -60,30 +61,35 @@ def main_callback(
     pass
 
 
-def print_package_plan(to_install, to_remove_undeclared, to_remove_orphans, prune_enabled):
+def print_package_plan(plan: PackagePlan, prune_enabled: bool):
     """Print package plan consistently."""
-    if to_install:
+    if plan.to_install:
         header('Installing:')
-        for pkg in to_install:
+        for pkg in plan.to_install:
             added(pkg)
 
     if prune_enabled:
-        if to_remove_undeclared:
+        if plan.undeclared:
             header('Removing undeclared:')
-            for pkg in to_remove_undeclared:
+            for pkg in plan.undeclared:
                 removed(pkg)
 
-        if to_remove_orphans:
+        if plan.orphans:
             header('Removing orphans:')
-            for pkg in to_remove_orphans:
+            for pkg in plan.orphans:
                 removed(pkg)
     else:
-        if to_remove_orphans:
-            header('Orphans (not removing, prune disabled):')
-            for pkg in to_remove_orphans:
+        if plan.undeclared:
+            header('Undeclared (not removing, prune disabled):')
+            for pkg in plan.undeclared:
                 info(f'  {pkg}')
 
-    if not to_install and not to_remove_undeclared and not to_remove_orphans:
+        if plan.orphans:
+            header('Orphans (not removing, prune disabled):')
+            for pkg in plan.orphans:
+                info(f'  {pkg}')
+
+    if not plan.to_install and not plan.undeclared and not plan.orphans:
         info('Packages in sync')
 
 
@@ -159,7 +165,9 @@ def merge():
 
 
 @app.command()
-def status():
+def status(
+    prune: bool | None = typer.Option(None, '--prune/--no-prune', help='Override host auto_prune'),
+):
     """Show diff between declared and current state."""
     host = get_host_name()
     host_config = load_host_config()
@@ -174,10 +182,8 @@ def status():
     installed = get_explicit_packages()
     orphans = get_orphan_packages()
 
-    prune_enabled = resolve_prune_mode(host_config, None)
-    to_install, to_remove_undeclared, to_remove_orphans = compute_package_plan(
-        declared, installed, orphans, prune_enabled
-    )
+    prune_enabled = resolve_prune_mode(host_config, prune)
+    plan = compute_package_plan(declared, installed, orphans)
 
     dotfiles = get_all_dotfiles()
     services = get_declared_services()
@@ -187,13 +193,13 @@ def status():
     info(f'Installed: {len(installed)} explicit, {len(orphans)} orphans')
     info(f'Prune: {"enabled" if prune_enabled else "disabled"}')
 
-    print_package_plan(to_install, to_remove_undeclared, to_remove_orphans, prune_enabled)
+    print_package_plan(plan, prune_enabled)
 
     if dotfiles:
         header('Dotfiles:')
         show_dotfiles_status()
 
-    if not to_install and not to_remove_undeclared and not to_remove_orphans and not missing:
+    if not plan.to_install and not plan.undeclared and not plan.orphans and not missing:
         success('System is in sync')
 
 
@@ -220,36 +226,33 @@ def sync(
     prune_enabled = resolve_prune_mode(host_config, prune)
 
     # Bootstrap AUR helper if needed
-    if not has_aur_helper():
-        configured = host_config.get('aur_helper')
+    configured_helper = host_config.get('aur_helper', 'paru')
+    available_helper = get_available_aur_helper()
+
+    if available_helper is None:
+        # No helper at all
         warning('No AUR helper found.')
-
         if dry_run:
-            helper = configured or 'paru'
-            info(f'Would bootstrap {helper}')
-        else:
-            if configured:
-                if yes or typer.confirm(f'Bootstrap {configured}?'):
-                    helper = configured
-                else:
-                    warning('Continuing without AUR helper (AUR packages will fail)')
-                    helper = None
-            else:
-                if yes:
-                    helper = 'paru'
-                else:
-                    choice = typer.prompt('Which AUR helper to bootstrap? (1=paru, 2=yay)', default='1')
-                    if choice == '1':
-                        helper = 'paru'
-                    elif choice == '2':
-                        helper = 'yay'
-                    else:
-                        error('Invalid choice. Enter 1 for paru or 2 for yay.')
-                        raise typer.Exit(1)
-
-            if helper and not bootstrap_aur_helper(helper):
+            info(f'Would bootstrap {configured_helper}')
+        elif yes or typer.confirm(f'Bootstrap {configured_helper}?'):
+            if not bootstrap_aur_helper(configured_helper):
                 error('Bootstrap failed. Install an AUR helper manually.')
                 raise typer.Exit(1)
+        else:
+            warning('Continuing without AUR helper (AUR packages will fail)')
+    elif available_helper != configured_helper:
+        if not shutil.which(configured_helper):
+            warning(f'Configured helper "{configured_helper}" not found, but "{available_helper}" is available.')
+            if dry_run:
+                info(f'Would bootstrap {configured_helper}')
+            elif yes or typer.confirm(
+                f'Bootstrap {configured_helper}? (or update host config to use {available_helper})'
+            ):
+                if not bootstrap_aur_helper(configured_helper):
+                    error('Bootstrap failed.')
+                    raise typer.Exit(1)
+            else:
+                warning(f'Using {available_helper} instead')
 
     # Pre hooks
     if not no_hooks:
@@ -266,13 +269,12 @@ def sync(
     installed = get_explicit_packages()
     orphans = get_orphan_packages()
 
-    to_install, to_remove_undeclared, to_remove_orphans = compute_package_plan(
-        declared, installed, orphans, prune_enabled
-    )
+    plan = compute_package_plan(declared, installed, orphans)
+    print_package_plan(plan, prune_enabled)
 
-    print_package_plan(to_install, to_remove_undeclared, to_remove_orphans, prune_enabled)
-
-    to_remove = to_remove_undeclared + to_remove_orphans
+    to_remove = []
+    if prune_enabled:
+        to_remove = plan.undeclared + plan.orphans
 
     if not dry_run and to_remove and not yes:
         if not typer.confirm(f'Remove {len(to_remove)} packages?'):
@@ -280,8 +282,8 @@ def sync(
             raise typer.Exit(0)
 
     if not dry_run:
-        if to_install:
-            if not install_packages(to_install):
+        if plan.to_install:
+            if not install_packages(plan.to_install):
                 error('Failed to install packages')
                 raise typer.Exit(1)
 

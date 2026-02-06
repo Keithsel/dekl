@@ -35,6 +35,7 @@ def bootstrap_aur_helper(helper: str = 'paru') -> bool:
         return False
 
     info(f'Bootstrapping {helper}...')
+    info(f'This will clone https://aur.archlinux.org/{helper}.git and run makepkg -si')
 
     info('Installing base-devel and git...')
     result = subprocess.run(

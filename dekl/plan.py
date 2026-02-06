@@ -1,25 +1,28 @@
+from dataclasses import dataclass
+
+
+@dataclass
+class PackagePlan:
+    """Computed package plan."""
+
+    to_install: list[str]
+    undeclared: list[str]
+    orphans: list[str]
+
+
 def compute_package_plan(
     declared: list[str],
     installed: set[str],
     orphans: set[str],
-    prune_enabled: bool,
-) -> tuple[list[str], list[str], list[str]]:
-    """Compute package changes.
-
-    Returns (to_install, to_remove_undeclared, to_remove_orphans).
-    """
+) -> PackagePlan:
+    """Compute package changes. Always computes all lists."""
     declared_set = set(declared)
 
-    # Preserve declaration order
-    to_install = [p for p in declared if p not in installed]
-
-    if not prune_enabled:
-        return to_install, [], []
-
-    to_remove_undeclared = sorted(installed - declared_set)
-    to_remove_orphans = sorted(orphans)
-
-    return to_install, to_remove_undeclared, to_remove_orphans
+    return PackagePlan(
+        to_install=[p for p in declared if p not in installed],
+        undeclared=sorted(installed - declared_set),
+        orphans=sorted(orphans),
+    )
 
 
 def resolve_prune_mode(host_config: dict, prune_override: bool | None) -> bool:
