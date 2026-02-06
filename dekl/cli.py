@@ -46,10 +46,10 @@ hook_app = typer.Typer(help='Manage hooks')
 app.add_typer(hook_app, name='hook')
 
 
-def require_configured_helper_or_exit() -> str:
+def require_configured_helper_or_exit() -> None:
     """Ensure configured aur_helper exists; otherwise exit with a clear message."""
     try:
-        return get_aur_helper(strict=True)
+        get_aur_helper(strict=True)
     except RuntimeError as e:
         error(str(e))
         info("Fix: install the helper, or run 'dekl sync' to bootstrap it, or change aur_helper in your host yaml.")
@@ -123,12 +123,12 @@ def init(host: str = typer.Option(None, '--host', '-H', help='Host name (default
     host_file = HOSTS_DIR / f'{host}.yaml'
     if not host_file.exists():
         info('Select AUR helper:')
-        info('  1) paru (recommended)')
+        info('  1) paru (recommended, default)')
         info('  2) yay')
         info('  3) none (pacman only)')
 
         while True:
-            choice = typer.prompt('Choice')
+            choice = typer.prompt('Choice', default='1')
             if choice == '1':
                 aur_helper = 'paru'
                 break
@@ -258,7 +258,7 @@ def sync(
     # Bootstrap AUR helper if needed (skip if using pacman only)
     configured_helper = host_config.get('aur_helper', 'paru')
 
-    if configured_helper in {'paru', 'yay'}:
+    if configured_helper in {'paru', 'yay'} and not shutil.which(configured_helper):
         available_helper = get_available_aur_helper()
 
         if available_helper is None:
@@ -288,7 +288,7 @@ def sync(
                     f'"{available_helper}" in your host yaml.'
                 )
                 raise typer.Exit(1)
-    # else: configured_helper == 'pacman', no bootstrap needed
+    # else: configured_helper == 'pacman' or configured_helper already exists, no bootstrap needed
 
     # Pre hooks
     if not no_hooks:
