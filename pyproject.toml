@@ -1,7 +1,7 @@
 [project]
 name = "dekl"
 version = "0.1.0"
-description = "Add your description here"
+description = "Declarative package and dotfile management for Arch Linux"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

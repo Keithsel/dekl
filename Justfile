@@ -6,6 +6,7 @@
 # ----------------
 
 REQUIRED_CMDS := "uv"
+version := `grep '__version__' dekl/__init__.py | cut -d"'" -f2`
 
 # --------------
 # Setup Commands
@@ -149,3 +150,42 @@ build-nuitka: install
   #!/usr/bin/env sh
   uv sync --group dev
   uv run python -m nuitka --onefile --output-filename=dekl --output-dir=dist --assume-yes-for-downloads --lto=yes -m dekl
+
+# -----------------
+# Release Commands
+# -----------------
+
+# Show current version
+[group('release')]
+version:
+    @echo {{version}}
+
+# Bump version (usage: just bump 0.2.0)
+[group('release')]
+bump new_version:
+    #!/usr/bin/env sh
+    sed -i "s/__version__ = '.*'/__version__ = '{{new_version}}'/" dekl/__init__.py
+    git add dekl/__init__.py
+    git commit -m "release: v{{new_version}}"
+    git push
+    echo "Now go to GitHub Actions and run the Release workflow with version {{new_version}}"
+
+# Update AUR PKGBUILD (usage: just aur-update 0.1.0 path/to/aur/dekl)
+aur-update new_version aur_dir:
+    #!/bin/bash
+    set -euo pipefail
+
+    SHA256=$(curl -sL https://github.com/Keithsel/dekl/releases/download/v{{new_version}}/dekl | sha256sum | cut -d' ' -f1)
+
+    cd "{{aur_dir}}"
+
+    sed -i "s/^pkgver=.*/pkgver={{new_version}}/" PKGBUILD
+    sed -i "s/^sha256sums=.*/sha256sums=('$SHA256')/" PKGBUILD
+
+    makepkg --printsrcinfo > .SRCINFO
+
+    echo "Updated PKGBUILD:"
+    grep -E '^(pkgver|sha256sums)=' PKGBUILD
+    echo ""
+    echo "Test with: cd {{aur_dir}} && makepkg -si"
+    echo "Push with: cd {{aur_dir}} && git add -A && git commit -m 'Update to {{new_version}}' && git push"

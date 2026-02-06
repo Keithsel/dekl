@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g., 0.1.0)'
+        required: true
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    permissions:
+      contents: write
+    steps:
+      - name: Install dependencies
+        run: pacman -Syu --noconfirm git python python-pip patchelf
+
+      - uses: actions/checkout@v6
+
+      - name: Verify version matches
+        run: |
+          VERSION=$(grep '__version__' dekl/__init__.py | cut -d"'" -f2)
+          if [ "$VERSION" != "${{ github.event.inputs.version }}" ]; then
+            echo "Version mismatch: __init__.py has $VERSION, input is ${{ github.event.inputs.version }}"
+            exit 1
+          fi
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Build binary
+        run: |
+          uv sync
+          uv pip install nuitka
+          uv run python -m nuitka \
+            --onefile \
+            --output-filename=dekl \
+            --output-dir=dist \
+            --assume-yes-for-downloads \
+            --lto=yes \
+            -m dekl
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          tag_name: v${{ github.event.inputs.version }}
+          files: dist/dekl
+          fail_on_unmatched_files: true
+          generate_release_notes: true

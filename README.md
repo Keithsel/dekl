@@ -239,3 +239,24 @@ just build-binary
 # Nuitka (slower to build, smaller size, faster startup)
 just build-nuitka
 ```
+
+## Release
+
+1. Bump version:
+
+   ```bash
+   just bump 0.2.0
+   ```
+
+2. Run the [Release workflow](https://github.com/Keithsel/dekl/actions/workflows/release.yml) with the version number
+
+3. Review and publish the draft release on GitHub
+
+4. Update AUR:
+
+   ```bash
+   just aur-update 0.2.0 ~aur/dekl
+   cd ~aur/dekl
+   makepkg -si  # test
+   git add -A && git commit -m "Update to 0.2.0" && git push
+   ```
