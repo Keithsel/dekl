@@ -12,11 +12,11 @@ Declarative package and dotfile management for Arch Linux.
 
 `dekl` follows the [Repeatable Arch Manifesto](https://gist.github.com/Keithsel/9974f329267d16c78a6f7921eb24e740): declare intent, converge state, move on.
 
-Your system matches your declaration, nothing more. Every package belongs to a module. Simplicity over features.
+Your system matches your declaration, nothing more. Every package belongs to a module. Simplicity over features. Safety first - destructive operations require confirmation by default.
 
 ## Todo
 
-- [ ] Confirmation prompts before destructive operations
+- [x] Confirmation prompts before destructive operations
 - [ ] `--json` output for scripting
 - [ ] Module dependencies/conflicts
 - [ ] Dotfile pruning when modules are disabled
@@ -58,7 +58,7 @@ Build from source: See the Development section for building instructions.
    dekl sync
    ```
 
-   Apply the changes to packages, services, and dotfiles. Use `--dry-run` to preview first.
+   Apply the changes to packages, services, and dotfiles. Use `--dry-run` to preview first. Use `--yes` to skip confirmation prompts for removals. Use `--prune` or `--no-prune` to control removal of undeclared packages (default: prune).
 
 ## Configuration
 
@@ -100,6 +100,7 @@ Add modules to your host config (`hosts/{hostname}.yaml`):
 
 ```yaml
 aur_helper: paru  # or yay
+auto_prune: true  # Remove undeclared packages (default: true)
 modules:
   - base
   - system
@@ -194,8 +195,8 @@ dotfiles:
 
 - `dekl init [host]`: Initialize config for a host (defaults to current hostname)
 - `dekl merge`: Capture current explicit packages into a `system` module
-- `dekl status`: Show diff between declared and installed packages
-- `dekl sync [--dry-run] [--no-hooks] [--no-dotfiles] [--no-services]`: Apply changes to sync system with declared state
+- `dekl status`: Show diff between declared and installed packages, services, and dotfiles
+- `dekl sync [--dry-run] [--prune/--no-prune] [--yes] [--no-hooks] [--no-dotfiles] [--no-services]`: Apply changes to sync system with declared state
 - `dekl update [--dry-run] [--no-hooks]`: Upgrade system packages
 - `dekl add <package> [-m module] [--dry-run]`: Add a package to a module and install it
 - `dekl drop <package> [--dry-run]`: Remove a package from all modules and uninstall it
