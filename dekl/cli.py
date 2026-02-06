@@ -35,6 +35,7 @@ from dekl.hooks import (
     list_hooks,
     force_run_hook,
 )
+from dekl.plan import compute_package_plan, resolve_prune_mode
 from dekl.output import info, success, warning, error, added, removed, header
 
 app = typer.Typer(name='dekl', help='Declarative Arch Linux system manager')
@@ -58,6 +59,33 @@ def main_callback(
     pass
 
 
+def print_package_plan(to_install, to_remove_undeclared, to_remove_orphans, prune_enabled):
+    """Print package plan consistently."""
+    if to_install:
+        header('Installing:')
+        for pkg in to_install:
+            added(pkg)
+
+    if prune_enabled:
+        if to_remove_undeclared:
+            header('Removing undeclared:')
+            for pkg in to_remove_undeclared:
+                removed(pkg)
+
+        if to_remove_orphans:
+            header('Removing orphans:')
+            for pkg in to_remove_orphans:
+                removed(pkg)
+    else:
+        if to_remove_orphans:
+            header('Orphans (not removing, prune disabled):')
+            for pkg in to_remove_orphans:
+                info(f'  {pkg}')
+
+    if not to_install and not to_remove_undeclared and not to_remove_orphans:
+        info('Packages in sync')
+
+
 @app.command()
 def init(host: str = typer.Option(None, '--host', '-H', help='Host name (defaults to hostname)')):
     """Scaffold a new dekl configuration."""
@@ -69,9 +97,7 @@ def init(host: str = typer.Option(None, '--host', '-H', help='Host name (default
     (MODULES_DIR / 'base').mkdir(exist_ok=True)
 
     if not CONFIG_FILE.exists():
-        config = {'host': host}
-        with open(CONFIG_FILE, 'w') as f:
-            yaml.dump(config, f)
+        save_yaml(CONFIG_FILE, {'host': host})
         success(f'Created {CONFIG_FILE}')
     else:
         info(f'Config already exists: {CONFIG_FILE}')
@@ -90,8 +116,7 @@ def init(host: str = typer.Option(None, '--host', '-H', help='Host name (default
 
     base_module = MODULES_DIR / 'base' / 'module.yaml'
     if not base_module.exists():
-        module = {'packages': ['base']}
-        save_yaml(base_module, module)
+        save_yaml(base_module, {'packages': ['base']})
         success(f'Created {base_module}')
     else:
         info(f'Base module already exists: {base_module}')
@@ -136,19 +161,22 @@ def merge():
 def status():
     """Show diff between declared and current state."""
     host = get_host_name()
+    host_config = load_host_config()
 
     missing = validate_modules()
     if missing:
         warning('Missing modules:')
         for m in missing:
-            warning(m)
+            warning(f'  {m}')
 
-    declared = set(get_declared_packages())
+    declared = get_declared_packages()
     installed = get_explicit_packages()
     orphans = get_orphan_packages()
 
-    to_install = declared - installed
-    to_remove = (installed - declared) | orphans
+    prune_enabled = resolve_prune_mode(host_config, None)
+    to_install, to_remove_undeclared, to_remove_orphans = compute_package_plan(
+        declared, installed, orphans, prune_enabled
+    )
 
     dotfiles = get_all_dotfiles()
     services = get_declared_services()
@@ -156,22 +184,15 @@ def status():
     info(f'Host: {host}')
     info(f'Declared: {len(declared)} packages, {len(dotfiles)} dotfiles, {len(services)} services')
     info(f'Installed: {len(installed)} explicit, {len(orphans)} orphans')
+    info(f'Prune: {"enabled" if prune_enabled else "disabled"}')
 
-    if to_install:
-        header('Would install:')
-        for pkg in sorted(to_install):
-            added(pkg)
-
-    if to_remove:
-        header('Would remove:')
-        for pkg in sorted(to_remove):
-            removed(pkg)
+    print_package_plan(to_install, to_remove_undeclared, to_remove_orphans, prune_enabled)
 
     if dotfiles:
         header('Dotfiles:')
         show_dotfiles_status()
 
-    if not to_install and not to_remove and not missing:
+    if not to_install and not to_remove_undeclared and not to_remove_orphans and not missing:
         success('System is in sync')
 
 
@@ -195,10 +216,7 @@ def sync(
 
     host_config = load_host_config()
     modules = host_config.get('modules', [])
-
-    # Resolve prune mode: CLI flag > host config > default
-    auto_prune = host_config.get('auto_prune', True)
-    prune_enabled = auto_prune if prune is None else prune
+    prune_enabled = resolve_prune_mode(host_config, prune)
 
     # Pre hooks
     if not no_hooks:
@@ -211,36 +229,15 @@ def sync(
                 raise typer.Exit(1)
 
     # Packages
-    declared = set(get_declared_packages())
+    declared = get_declared_packages()
     installed = get_explicit_packages()
     orphans = get_orphan_packages()
 
-    to_install = sorted(declared - installed)
+    to_install, to_remove_undeclared, to_remove_orphans = compute_package_plan(
+        declared, installed, orphans, prune_enabled
+    )
 
-    if prune_enabled:
-        to_remove_undeclared = sorted(installed - declared)
-        to_remove_orphans = sorted(orphans)
-    else:
-        to_remove_undeclared = []
-        to_remove_orphans = []
-
-    if to_install:
-        header('Installing:')
-        for pkg in to_install:
-            added(pkg)
-
-    if to_remove_undeclared:
-        header('Removing undeclared:')
-        for pkg in to_remove_undeclared:
-            removed(pkg)
-
-    if to_remove_orphans:
-        header('Removing orphans:')
-        for pkg in to_remove_orphans:
-            removed(pkg)
-
-    if not to_install and not to_remove_undeclared and not to_remove_orphans:
-        info('Packages in sync')
+    print_package_plan(to_install, to_remove_undeclared, to_remove_orphans, prune_enabled)
 
     to_remove = to_remove_undeclared + to_remove_orphans
 

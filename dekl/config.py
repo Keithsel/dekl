@@ -3,7 +3,7 @@ import yaml
 from pathlib import Path
 
 from dekl.constants import CONFIG_FILE, HOSTS_DIR, MODULES_DIR
-from dekl.output import info, warning
+from dekl.output import info
 
 
 def load_config() -> dict:
@@ -85,7 +85,10 @@ def get_declared_packages() -> list[str]:
 
 
 def get_aur_helper() -> str:
-    """Get configured or detected AUR helper."""
+    """Get configured or detected AUR helper.
+
+    If configured helper is missing, raises RuntimeError.
+    """
     try:
         host = load_host_config()
     except (RuntimeError, FileNotFoundError):
@@ -95,8 +98,9 @@ def get_aur_helper() -> str:
         helper = host['aur_helper']
         if shutil.which(helper):
             return helper
-        else:
-            warning(f'Configured AUR helper "{helper}" not found, falling back to pacman')
+        raise RuntimeError(
+            f'Configured AUR helper "{helper}" not found. Install it or update aur_helper in host config.'
+        )
 
     for helper in ['paru', 'yay']:
         if shutil.which(helper):
@@ -113,21 +117,25 @@ def ensure_module(name: str, dry_run: bool = False) -> tuple[Path, dict]:
     if not module_path.exists():
         if dry_run:
             info(f'Would create module: {name}')
-        else:
-            module_path.mkdir(parents=True)
-            info(f'Creating module: {name}')
+            info(f'Would add {name} to host config')
+            return module_file, {}
+
+        module_path.mkdir(parents=True)
+        info(f'Creating module: {name}')
 
         host_name = get_host_name()
         host_file = HOSTS_DIR / f'{host_name}.yaml'
+
+        if not host_file.exists():
+            raise RuntimeError(f'Host config not found: {host_file}. Run "dekl init" first.')
+
         with open(host_file) as f:
             host_config = yaml.safe_load(f) or {}
+
         if name not in host_config.get('modules', []):
             host_config.setdefault('modules', []).append(name)
-            if not dry_run:
-                save_yaml(host_file, host_config)
-                info(f'Added {name} to host config')
-            else:
-                info(f'Would add {name} to host config')
+            save_yaml(host_file, host_config)
+            info(f'Added {name} to host config')
 
     if module_file.exists():
         with open(module_file) as f:
