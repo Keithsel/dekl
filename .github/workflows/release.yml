@@ -20,9 +20,12 @@ jobs:
       contents: write
     steps:
       - name: Install dependencies
-        run: pacman -Syu --noconfirm git python python-pip patchelf
+        run: pacman -Syu --noconfirm git patchelf
 
       - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
       - name: Verify version matches
         run: |
@@ -31,9 +34,6 @@ jobs:
             echo "Version mismatch: __init__.py has $VERSION, input is ${{ github.event.inputs.version }}"
             exit 1
           fi
-
-      - name: Install uv
-        run: pip install uv
 
       - name: Build binary
         run: |
