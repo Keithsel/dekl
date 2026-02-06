@@ -122,13 +122,32 @@ def init(host: str = typer.Option(None, '--host', '-H', help='Host name (default
 
     host_file = HOSTS_DIR / f'{host}.yaml'
     if not host_file.exists():
+        info('Select AUR helper:')
+        info('  1) paru (recommended)')
+        info('  2) yay')
+        info('  3) none (pacman only)')
+
+        while True:
+            choice = typer.prompt('Choice')
+            if choice == '1':
+                aur_helper = 'paru'
+                break
+            elif choice == '2':
+                aur_helper = 'yay'
+                break
+            elif choice == '3':
+                aur_helper = 'pacman'
+                break
+            else:
+                error(f'Invalid choice "{choice}". Please enter 1, 2, or 3.')
+
         host_config = {
-            'aur_helper': 'paru',
+            'aur_helper': aur_helper,
             'auto_prune': True,
             'modules': ['base'],
         }
         save_yaml(host_file, host_config)
-        success(f'Created {host_file}')
+        success(f'Created {host_file} with aur_helper: {aur_helper}')
     else:
         info(f'Host config already exists: {host_file}')
 
