@@ -6,6 +6,7 @@ import yaml
 from dekl import __version__
 from dekl.constants import CONFIG_DIR, HOSTS_DIR, MODULES_DIR, CONFIG_FILE
 from dekl.config import (
+    get_aur_helper,
     get_declared_packages,
     get_host_name,
     load_host_config,
@@ -43,6 +44,16 @@ from dekl.output import info, success, warning, error, added, removed, header
 app = typer.Typer(name='dekl', help='Declarative Arch Linux system manager')
 hook_app = typer.Typer(help='Manage hooks')
 app.add_typer(hook_app, name='hook')
+
+
+def require_configured_helper_or_exit() -> str:
+    """Ensure configured aur_helper exists; otherwise exit with a clear message."""
+    try:
+        return get_aur_helper(strict=True)
+    except RuntimeError as e:
+        error(str(e))
+        info("Fix: install the helper, or run 'dekl sync' to bootstrap it, or change aur_helper in your host yaml.")
+        raise typer.Exit(1)
 
 
 def version_callback(value: bool):
@@ -240,19 +251,18 @@ def sync(
                 raise typer.Exit(1)
         else:
             warning('Continuing without AUR helper (AUR packages will fail)')
-    elif available_helper != configured_helper:
-        if not shutil.which(configured_helper):
-            warning(f'Configured helper "{configured_helper}" not found, but "{available_helper}" is available.')
-            if dry_run:
-                info(f'Would bootstrap {configured_helper}')
-            elif yes or typer.confirm(
-                f'Bootstrap {configured_helper}? (or update host config to use {available_helper})'
-            ):
-                if not bootstrap_aur_helper(configured_helper):
-                    error('Bootstrap failed.')
-                    raise typer.Exit(1)
-            else:
-                warning(f'Using {available_helper} instead')
+    elif available_helper != configured_helper and not shutil.which(configured_helper):
+        warning(f'Configured helper "{configured_helper}" not found, but "{available_helper}" is available.')
+        if dry_run:
+            info(f'Would bootstrap {configured_helper}')
+        elif yes or typer.confirm(f'Bootstrap {configured_helper}? (recommended to match your declaration)'):
+            if not bootstrap_aur_helper(configured_helper):
+                error('Bootstrap failed.')
+                raise typer.Exit(1)
+        else:
+            error(f'Cannot continue: host config declares aur_helper: {configured_helper} but it is not installed.')
+            info(f'Either install {configured_helper}, or change aur_helper to "{available_helper}" in your host yaml.')
+            raise typer.Exit(1)
 
     # Pre hooks
     if not no_hooks:
@@ -282,6 +292,7 @@ def sync(
             raise typer.Exit(0)
 
     if not dry_run:
+        require_configured_helper_or_exit()
         if plan.to_install:
             if not install_packages(plan.to_install):
                 error('Failed to install packages')
@@ -336,6 +347,7 @@ def update(
     if dry_run:
         info('Would run system upgrade')
     else:
+        require_configured_helper_or_exit()
         if not upgrade_system():
             error('System upgrade failed')
             raise typer.Exit(1)
@@ -375,6 +387,7 @@ def add(
 
     save_module(module_file, module_data)
 
+    require_configured_helper_or_exit()
     if install_packages([package]):
         success(f'Installed {package}')
     else:
@@ -416,6 +429,7 @@ def drop(
         info('Dry run - no changes made')
         return
 
+    require_configured_helper_or_exit()
     if remove_packages([package]):
         success(f'Removed {package}')
     else:
