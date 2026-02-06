@@ -21,7 +21,7 @@ from dekl.packages import (
     remove_packages,
     upgrade_system,
 )
-from dekl.dotfiles import sync_dotfiles, get_all_dotfiles
+from dekl.dotfiles import sync_dotfiles, get_all_dotfiles, show_dotfiles_status
 from dekl.services import (
     sync_services,
     enable_service,
@@ -169,7 +169,7 @@ def status():
 
     if dotfiles:
         header('Dotfiles:')
-        sync_dotfiles(True)
+        show_dotfiles_status()
 
     if not to_install and not to_remove and not missing:
         success('System is in sync')

@@ -89,6 +89,31 @@ def check_conflicts(dotfiles: list[dict]) -> list[dict]:
     return conflicts
 
 
+def show_dotfiles_status():
+    """Display the status of all dotfiles."""
+    dotfiles = get_all_dotfiles()
+
+    if not dotfiles:
+        info('No dotfiles configured')
+        return
+
+    conflicts = check_conflicts(dotfiles)
+    if conflicts:
+        error('Dotfile conflicts detected:')
+        for c in conflicts:
+            error(f'  {c["target"]} claimed by: {", ".join(c["modules"])}')
+        return
+
+    for df in dotfiles:
+        source = df['source']
+        target = df['target']
+
+        if target.is_symlink() and target.resolve() == source.resolve():
+            info(f'{source.name} -> {target} (synced)')
+        else:
+            added(f'{source.name} -> {target} (needs sync)')
+
+
 def sync_dotfiles(dry_run: bool = False) -> bool:
     """Sync all dotfiles. Returns True if successful."""
     dotfiles = get_all_dotfiles()
