@@ -20,7 +20,7 @@ jobs:
       contents: write
     steps:
       - name: Install dependencies
-        run: pacman -Syu --noconfirm git patchelf
+        run: pacman -Syu --noconfirm git patchelf base-devel
 
       - uses: actions/checkout@v6
 
