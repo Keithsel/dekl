@@ -34,7 +34,7 @@ Build from source: See the Development section for building instructions.
    dekl init
    ```
 
-   This creates the configuration directory `~/.config/dekl-arch/` with basic structure.
+   This creates the configuration directory `~/.config/dekl-arch/` with basic structure and prompts you to select an AUR helper (paru recommended, yay, or pacman only).
 
 2. Capture your current system state:
 
@@ -99,7 +99,7 @@ Services can be strings or objects with `name`, `user` (for user services), and 
 Add modules to your host config (`hosts/{hostname}.yaml`):
 
 ```yaml
-aur_helper: paru  # or yay
+aur_helper: paru  # paru (recommended), yay, or pacman
 auto_prune: true  # Remove undeclared packages (default: true)
 modules:
   - base
@@ -193,7 +193,7 @@ dotfiles:
 
 ## Commands
 
-- `dekl init [host]`: Initialize config for a host (defaults to current hostname)
+- `dekl init [host]`: Initialize config for a host (defaults to current hostname) and select AUR helper
 - `dekl merge`: Capture current explicit packages into a `system` module
 - `dekl status`: Show diff between declared and installed packages, services, and dotfiles
 - `dekl sync [--dry-run] [--prune/--no-prune] [--yes] [--no-hooks] [--no-dotfiles] [--no-services]`: Apply changes to sync system with declared state
