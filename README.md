@@ -2,6 +2,9 @@
 
 Declarative package and dotfile management for Arch Linux.
 
+[![dekl](https://img.shields.io/aur/version/dekl?color=1793d1&label=dekl&logo=arch-linux&style=for-the-badge)](https://aur.archlinux.org/packages/dekl/)
+[![dekl-git](https://img.shields.io/aur/version/dekl-git?color=1793d1&label=dekl-git&logo=arch-linux&style=for-the-badge)](https://aur.archlinux.org/packages/dekl-git/)
+
 `dekl` allows you to define your system's packages and configuration in YAML files, making your Arch Linux setup reproducible and version-controllable.
 
 > **⚠️ Alpha Development Notice**
@@ -24,7 +27,23 @@ Your system matches your declaration, nothing more. Every package belongs to a m
 
 ## Installation
 
-Build from source: See the Development section for building instructions.
+Install from the Arch User Repository:
+
+**Stable release:**
+
+```bash
+# Using paru
+paru -S dekl
+```
+
+**Development version (tracks git master):**
+
+```bash
+# Using paru
+paru -S dekl-git
+```
+
+Or build from source: See the Development section for building instructions.
 
 ## Quick Start
 
