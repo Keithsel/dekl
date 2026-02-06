@@ -255,16 +255,13 @@ def sync(
     modules = host_config.get('modules', [])
     prune_enabled = resolve_prune_mode(host_config, prune)
 
-    # Bootstrap AUR helper if needed
+    # Bootstrap AUR helper if needed (skip if using pacman only)
     configured_helper = host_config.get('aur_helper', 'paru')
 
-    if configured_helper == 'pacman':
-        pass
-    else:
+    if configured_helper in {'paru', 'yay'}:
         available_helper = get_available_aur_helper()
 
         if available_helper is None:
-            # No helper at all
             warning('No AUR helper found.')
             if dry_run:
                 info(f'Would bootstrap {configured_helper}')
@@ -291,6 +288,7 @@ def sync(
                     f'"{available_helper}" in your host yaml.'
                 )
                 raise typer.Exit(1)
+    # else: configured_helper == 'pacman', no bootstrap needed
 
     # Pre hooks
     if not no_hooks:
