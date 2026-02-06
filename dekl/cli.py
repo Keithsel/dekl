@@ -41,7 +41,13 @@ from dekl.plan import PackagePlan, compute_package_plan, resolve_prune_mode
 from dekl.bootstrap import bootstrap_aur_helper, get_available_aur_helper
 from dekl.output import info, success, warning, error, added, removed, header
 
-app = typer.Typer(name='dekl', help='Declarative Arch Linux system manager')
+app = typer.Typer(
+    name='dekl',
+    help='Declarative Arch Linux system manager',
+    context_settings={
+        'help_option_names': ['--help', '-h'],
+    },
+)
 hook_app = typer.Typer(help='Manage hooks')
 app.add_typer(hook_app, name='hook')
 
@@ -106,7 +112,7 @@ def print_package_plan(plan: PackagePlan, prune_enabled: bool):
 
 @app.command()
 def init(host: str = typer.Option(None, '--host', '-H', help='Host name (defaults to hostname)')):
-    """Scaffold a new dekl configuration."""
+    """Initialize dekl configuration and select AUR helper."""
     if host is None:
         host = socket.gethostname()
 
@@ -242,7 +248,7 @@ def sync(
     no_dotfiles: bool = typer.Option(False, '--no-dotfiles', help='Skip dotfiles sync'),
     no_services: bool = typer.Option(False, '--no-services', help='Skip services sync'),
 ):
-    """Sync system to declared state."""
+    """Sync packages, services, dotfiles, and run hooks."""
     missing = validate_modules()
     if missing:
         error('Missing modules:')
