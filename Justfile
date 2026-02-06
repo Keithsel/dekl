@@ -149,7 +149,7 @@ build-binary: install
 build-nuitka: install
   #!/usr/bin/env sh
   uv sync --group dev
-  uv run python -m nuitka --onefile --output-filename=dekl --output-dir=dist --assume-yes-for-downloads --lto=yes -m dekl
+  uv run python -m nuitka --onefile --output-filename=dekl --output-dir=dist --assume-yes-for-downloads --lto=yes dekl
 
 # -----------------
 # Release Commands
