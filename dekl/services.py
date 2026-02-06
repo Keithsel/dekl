@@ -80,7 +80,8 @@ def is_service_enabled(name: str, user: bool = False) -> bool:
     cmd.extend(['is-enabled', name])
 
     result = subprocess.run(cmd, capture_output=True, text=True)
-    return result.stdout.strip() == 'enabled'
+    status = result.stdout.strip()
+    return status in {'enabled', 'enabled-runtime'}
 
 
 def enable_service(name: str, user: bool = False) -> bool:
