@@ -257,33 +257,40 @@ def sync(
 
     # Bootstrap AUR helper if needed
     configured_helper = host_config.get('aur_helper', 'paru')
-    available_helper = get_available_aur_helper()
 
-    if available_helper is None:
-        # No helper at all
-        warning('No AUR helper found.')
-        if dry_run:
-            info(f'Would bootstrap {configured_helper}')
-        elif yes or typer.confirm(f'Bootstrap {configured_helper}?'):
-            if not bootstrap_aur_helper(configured_helper):
-                error('Bootstrap failed. Install an AUR helper manually.')
+    if configured_helper == 'pacman':
+        pass
+    else:
+        available_helper = get_available_aur_helper()
+
+        if available_helper is None:
+            # No helper at all
+            warning('No AUR helper found.')
+            if dry_run:
+                info(f'Would bootstrap {configured_helper}')
+            elif yes or typer.confirm(f'Bootstrap {configured_helper}?'):
+                if not bootstrap_aur_helper(configured_helper):
+                    error('Bootstrap failed. Install an AUR helper manually.')
+                    raise typer.Exit(1)
+            else:
+                error(f'Cannot continue: no AUR helper available and {configured_helper} is configured.')
+                info('Either bootstrap it, install manually, or set aur_helper: pacman in host config.')
                 raise typer.Exit(1)
-        else:
-            error(f'Cannot continue: no AUR helper available and {configured_helper} is configured.')
-            info('Either bootstrap it, install manually, or set aur_helper: pacman in host config.')
-            raise typer.Exit(1)
-    elif available_helper != configured_helper and not shutil.which(configured_helper):
-        warning(f'Configured helper "{configured_helper}" not found, but "{available_helper}" is available.')
-        if dry_run:
-            info(f'Would bootstrap {configured_helper}')
-        elif yes or typer.confirm(f'Bootstrap {configured_helper}? (recommended to match your declaration)'):
-            if not bootstrap_aur_helper(configured_helper):
-                error('Bootstrap failed.')
+        elif available_helper != configured_helper and not shutil.which(configured_helper):
+            warning(f'Configured helper "{configured_helper}" not found, but "{available_helper}" is available.')
+            if dry_run:
+                info(f'Would bootstrap {configured_helper}')
+            elif yes or typer.confirm(f'Bootstrap {configured_helper}? (recommended to match your declaration)'):
+                if not bootstrap_aur_helper(configured_helper):
+                    error('Bootstrap failed.')
+                    raise typer.Exit(1)
+            else:
+                error(f'Cannot continue: host config declares aur_helper: {configured_helper} but it is not installed.')
+                info(
+                    f'Either install {configured_helper}, or change aur_helper to '
+                    f'"{available_helper}" in your host yaml.'
+                )
                 raise typer.Exit(1)
-        else:
-            error(f'Cannot continue: host config declares aur_helper: {configured_helper} but it is not installed.')
-            info(f'Either install {configured_helper}, or change aur_helper to "{available_helper}" in your host yaml.')
-            raise typer.Exit(1)
 
     # Pre hooks
     if not no_hooks:
