@@ -84,23 +84,27 @@ def get_declared_packages() -> list[str]:
     return unique
 
 
-def get_aur_helper() -> str:
+def get_aur_helper(strict: bool = True) -> str:
     """Get configured or detected AUR helper.
 
-    If configured helper is missing, raises RuntimeError.
+    Args:
+        strict: If True and configured helper missing, raise RuntimeError.
+                If False, return 'pacman' as fallback.
     """
     try:
         host = load_host_config()
     except (RuntimeError, FileNotFoundError):
         host = {}
 
-    if 'aur_helper' in host:
-        helper = host['aur_helper']
-        if shutil.which(helper):
-            return helper
-        raise RuntimeError(
-            f'Configured AUR helper "{helper}" not found. Install it or update aur_helper in host config.'
-        )
+    configured = host.get('aur_helper')
+
+    if configured:
+        if shutil.which(configured):
+            return configured
+        if strict:
+            raise RuntimeError(
+                f'Configured AUR helper "{configured}" not found. Install it or update aur_helper in host config.'
+            )
 
     for helper in ['paru', 'yay']:
         if shutil.which(helper):

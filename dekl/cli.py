@@ -36,6 +36,7 @@ from dekl.hooks import (
     force_run_hook,
 )
 from dekl.plan import compute_package_plan, resolve_prune_mode
+from dekl.bootstrap import has_aur_helper, bootstrap_aur_helper
 from dekl.output import info, success, warning, error, added, removed, header
 
 app = typer.Typer(name='dekl', help='Declarative Arch Linux system manager')
@@ -217,6 +218,38 @@ def sync(
     host_config = load_host_config()
     modules = host_config.get('modules', [])
     prune_enabled = resolve_prune_mode(host_config, prune)
+
+    # Bootstrap AUR helper if needed
+    if not has_aur_helper():
+        configured = host_config.get('aur_helper')
+        warning('No AUR helper found.')
+
+        if dry_run:
+            helper = configured or 'paru'
+            info(f'Would bootstrap {helper}')
+        else:
+            if configured:
+                if yes or typer.confirm(f'Bootstrap {configured}?'):
+                    helper = configured
+                else:
+                    warning('Continuing without AUR helper (AUR packages will fail)')
+                    helper = None
+            else:
+                if yes:
+                    helper = 'paru'
+                else:
+                    choice = typer.prompt('Which AUR helper to bootstrap? (1=paru, 2=yay)', default='1')
+                    if choice == '1':
+                        helper = 'paru'
+                    elif choice == '2':
+                        helper = 'yay'
+                    else:
+                        error('Invalid choice. Enter 1 for paru or 2 for yay.')
+                        raise typer.Exit(1)
+
+            if helper and not bootstrap_aur_helper(helper):
+                error('Bootstrap failed. Install an AUR helper manually.')
+                raise typer.Exit(1)
 
     # Pre hooks
     if not no_hooks:
