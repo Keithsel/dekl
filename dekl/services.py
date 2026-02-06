@@ -143,7 +143,7 @@ def sync_services(dry_run: bool = False) -> bool:
     for key in tracked:
         if key not in declared_map:
             name, user_str = key.split('|', 1)
-            user = user_str == 'True'
+            user = user_str.lower() == 'true'
             if is_service_enabled(name, user):
                 to_disable.append(Service(name=name, user=user, enabled=False))
 

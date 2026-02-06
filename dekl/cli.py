@@ -141,7 +141,7 @@ def status():
     if missing:
         warning('Missing modules:')
         for m in missing:
-            removed(m)
+            warning(m)
 
     declared = set(get_declared_packages())
     installed = get_explicit_packages()
@@ -195,7 +195,7 @@ def sync(
 
     host_config = load_host_config()
     modules = host_config.get('modules', [])
-    
+
     # Resolve prune mode: CLI flag > host config > default
     auto_prune = host_config.get('auto_prune', True)
     prune_enabled = auto_prune if prune is None else prune
@@ -216,7 +216,7 @@ def sync(
     orphans = get_orphan_packages()
 
     to_install = sorted(declared - installed)
-    
+
     if prune_enabled:
         to_remove_undeclared = sorted(installed - declared)
         to_remove_orphans = sorted(orphans)
@@ -243,7 +243,7 @@ def sync(
         info('Packages in sync')
 
     to_remove = to_remove_undeclared + to_remove_orphans
-    
+
     if not dry_run and to_remove and not yes:
         if not typer.confirm(f'Remove {len(to_remove)} packages?'):
             warning('Aborted')
