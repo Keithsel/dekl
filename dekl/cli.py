@@ -250,7 +250,9 @@ def sync(
                 error('Bootstrap failed. Install an AUR helper manually.')
                 raise typer.Exit(1)
         else:
-            warning('Continuing without AUR helper (AUR packages will fail)')
+            error(f'Cannot continue: no AUR helper available and {configured_helper} is configured.')
+            info('Either bootstrap it, install manually, or set aur_helper: pacman in host config.')
+            raise typer.Exit(1)
     elif available_helper != configured_helper and not shutil.which(configured_helper):
         warning(f'Configured helper "{configured_helper}" not found, but "{available_helper}" is available.')
         if dry_run:
@@ -284,7 +286,7 @@ def sync(
 
     to_remove = []
     if prune_enabled:
-        to_remove = plan.undeclared + plan.orphans
+        to_remove = sorted(set(plan.undeclared) | set(plan.orphans))
 
     if not dry_run and to_remove and not yes:
         if not typer.confirm(f'Remove {len(to_remove)} packages?'):
@@ -523,12 +525,13 @@ def disable(
                     services.pop(i)
                     removed(f'{svc_name} ← {module_name}')
                 else:
-                    services[i] = {
-                        'name': service,
+                    entry = {
+                        'name': svc_name,
                         'enabled': False,
                     }
                     if user_flag_detected:
-                        services[i]['user'] = True
+                        entry['user'] = True
+                    services[i] = entry
                     info(f'{svc_name} → enabled: false in {module_name}')
 
                 if not dry_run:
