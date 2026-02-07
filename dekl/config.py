@@ -6,6 +6,13 @@ from dekl.constants import CONFIG_FILE, HOSTS_DIR, MODULES_DIR
 from dekl.output import info
 
 
+class _SafeIndentDumper(yaml.SafeDumper):
+    """SafeDumper with proper list indentation."""
+
+    def increase_indent(self, flow=False, indentless=False):
+        return super().increase_indent(flow, False)
+
+
 def load_config() -> dict:
     """Load main config."""
     if not CONFIG_FILE.exists():
@@ -156,9 +163,9 @@ def save_module(module_file: Path, module_data: dict):
 
 
 def save_yaml(path: Path, data: dict):
-    """Save YAML consistently."""
+    """Save YAML consistently"""
     with open(path, 'w') as f:
-        yaml.safe_dump(data, f, sort_keys=False, default_flow_style=False)
+        yaml.dump(data, f, Dumper=_SafeIndentDumper, sort_keys=False, default_flow_style=False, indent=2)
 
 
 def normalize_service_name(name: str) -> str:
