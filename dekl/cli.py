@@ -402,21 +402,27 @@ def update(
 
 @app.command()
 def add(
-    package: str = typer.Argument(..., help='Package to add'),
+    packages: list[str] = typer.Argument(..., help='Package(s) to add'),
     module: str = typer.Option(None, '-m', '--module', help='Target module (default: local)'),
     dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
 ):
-    """Add a package to a module and install it."""
+    """Add package(s) to a module and install."""
     target = module or 'local'
     module_file, module_data = ensure_module(target, dry_run)
 
-    packages = module_data.setdefault('packages', [])
-    if package in packages:
-        warning(f'{package} already in {target}')
-        return
+    pkg_list = module_data.setdefault('packages', [])
+    to_install = []
 
-    packages.append(package)
-    added(f'{package} → {target}')
+    for package in packages:
+        if package in pkg_list:
+            warning(f'{package} already in {target}')
+        else:
+            pkg_list.append(package)
+            to_install.append(package)
+            added(f'{package} → {target}')
+
+    if not to_install:
+        return
 
     if dry_run:
         info('Dry run - no changes made')
@@ -425,41 +431,47 @@ def add(
     save_module(module_file, module_data)
 
     require_configured_helper_or_exit()
-    if install_packages([package]):
-        success(f'Installed {package}')
+    if install_packages(to_install):
+        success(f'Installed {len(to_install)} package(s)')
     else:
-        error(f'Failed to install {package}')
+        error('Failed to install packages')
         raise typer.Exit(1)
 
 
 @app.command()
 def drop(
-    package: str = typer.Argument(..., help='Package to remove'),
+    packages: list[str] = typer.Argument(..., help='Package(s) to remove'),
     dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
 ):
-    """Remove a package from all modules and uninstall it."""
+    """Remove package(s) from all modules and uninstall."""
     host = load_host_config()
-    found_in = []
+    to_remove = []
 
-    for module_name in host.get('modules', []):
-        module_file = MODULES_DIR / module_name / 'module.yaml'
-        if not module_file.exists():
-            continue
+    for package in packages:
+        found = False
+        for module_name in host.get('modules', []):
+            module_file = MODULES_DIR / module_name / 'module.yaml'
+            if not module_file.exists():
+                continue
 
-        with open(module_file) as f:
-            module_data = yaml.safe_load(f) or {}
+            with open(module_file) as f:
+                module_data = yaml.safe_load(f) or {}
 
-        packages = module_data.get('packages', [])
-        if package in packages:
-            found_in.append(module_name)
-            packages.remove(package)
-            removed(f'{package} ← {module_name}')
+            pkg_list = module_data.get('packages', [])
+            if package in pkg_list:
+                found = True
+                pkg_list.remove(package)
+                removed(f'{package} ← {module_name}')
 
-            if not dry_run:
-                save_yaml(module_file, module_data)
+                if not dry_run:
+                    save_yaml(module_file, module_data)
 
-    if not found_in:
-        warning(f'{package} not found in any module')
+        if found:
+            to_remove.append(package)
+        else:
+            warning(f'{package} not found in any module')
+
+    if not to_remove:
         return
 
     if dry_run:
@@ -467,44 +479,55 @@ def drop(
         return
 
     require_configured_helper_or_exit()
-    if remove_packages([package]):
-        success(f'Removed {package}')
+    if remove_packages(to_remove):
+        success(f'Removed {len(to_remove)} package(s)')
     else:
-        error(f'Failed to remove {package}')
+        error('Failed to remove packages')
         raise typer.Exit(1)
 
 
 @app.command()
 def enable(
-    service: str = typer.Argument(..., help='Service to enable'),
+    services: list[str] = typer.Argument(..., help='Service(s) to enable'),
     module: str = typer.Option(None, '-m', '--module', help='Target module (default: local)'),
     user: bool = typer.Option(False, '--user', help='User service (systemctl --user)'),
     dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
 ):
-    """Add a service to a module and enable it."""
+    """Add service(s) to a module and enable."""
     target = module or 'local'
     module_file, module_data = ensure_module(target, dry_run)
-    svc_name = normalize_service_name(service)
+    svc_list = module_data.setdefault('services', [])
 
-    services = module_data.setdefault('services', [])
-    for i, existing in enumerate(services):
-        existing_name = existing if isinstance(existing, str) else existing.get('name', '')
-        existing_name = normalize_service_name(existing_name)
+    to_enable = []
 
-        if existing_name == svc_name:
-            if isinstance(existing, dict) and not existing.get('enabled', True):
-                services[i] = {'name': service, 'user': user, 'enabled': True} if user else service
-                info(f'Re-enabling {svc_name} in {target}')
+    for service in services:
+        svc_name = normalize_service_name(service)
+        already_exists = False
+
+        for i, existing in enumerate(svc_list):
+            existing_name = existing if isinstance(existing, str) else existing.get('name', '')
+            existing_name = normalize_service_name(existing_name)
+
+            if existing_name == svc_name:
+                if isinstance(existing, dict) and not existing.get('enabled', True):
+                    svc_list[i] = {'name': service, 'user': user, 'enabled': True} if user else service
+                    info(f'Re-enabling {svc_name} in {target}')
+                    to_enable.append((svc_name, user))
+                else:
+                    warning(f'{svc_name} already enabled in {target}')
+                already_exists = True
                 break
+
+        if not already_exists:
+            if user:
+                svc_list.append({'name': service, 'user': True})
             else:
-                warning(f'{svc_name} already enabled in {target}')
-                return
-    else:
-        if user:
-            services.append({'name': service, 'user': True})
-        else:
-            services.append(service)
-        added(f'{svc_name} → {target}')
+                svc_list.append(service)
+            added(f'{svc_name} → {target}')
+            to_enable.append((svc_name, user))
+
+    if not to_enable:
+        return
 
     if dry_run:
         info('Dry run - no changes made')
@@ -512,80 +535,96 @@ def enable(
 
     save_module(module_file, module_data)
 
-    user_flag = ' (user)' if user else ''
-    if enable_service(svc_name, user):
-        success(f'Enabled {svc_name}{user_flag}')
-    else:
-        error(f'Failed to enable {svc_name}')
+    failed = []
+    for svc_name, is_user in to_enable:
+        user_flag = ' (user)' if is_user else ''
+        if enable_service(svc_name, is_user):
+            success(f'Enabled {svc_name}{user_flag}')
+        else:
+            failed.append(svc_name)
+            error(f'Failed to enable {svc_name}')
+
+    if failed:
         raise typer.Exit(1)
 
 
 @app.command()
 def disable(
-    service: str = typer.Argument(..., help='Service to disable'),
+    services: list[str] = typer.Argument(..., help='Service(s) to disable'),
     module: str = typer.Option(None, '-m', '--module', help='Target module (searches all if not specified)'),
     remove: bool = typer.Option(False, '-r', '--remove', help='Remove from module instead of setting enabled: false'),
     user: bool = typer.Option(False, '--user', help='User service (systemctl --user)'),
     dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
 ):
-    """Disable a service (set enabled: false or remove from module)."""
-    svc_name = normalize_service_name(service)
-
+    """Disable service(s) (set enabled: false or remove from module)."""
     host = load_host_config()
-    found_in = []
-    user_flag_detected = user
-
     modules_to_search = [module] if module else host.get('modules', [])
 
-    for module_name in modules_to_search:
-        module_file = MODULES_DIR / module_name / 'module.yaml'
-        if not module_file.exists():
-            continue
+    to_disable = []
 
-        with open(module_file) as f:
-            module_data = yaml.safe_load(f) or {}
+    for service in services:
+        svc_name = normalize_service_name(service)
+        found = False
+        user_flag_detected = user
 
-        services = module_data.get('services', [])
-        for i, existing in enumerate(services):
-            existing_name = existing if isinstance(existing, str) else existing.get('name', '')
-            existing_name = normalize_service_name(existing_name)
+        for module_name in modules_to_search:
+            module_file = MODULES_DIR / module_name / 'module.yaml'
+            if not module_file.exists():
+                continue
 
-            if existing_name == svc_name:
-                found_in.append(module_name)
+            with open(module_file) as f:
+                module_data = yaml.safe_load(f) or {}
 
-                if isinstance(existing, dict) and existing.get('user'):
-                    user_flag_detected = True
+            svc_list = module_data.get('services', [])
+            for i, existing in enumerate(svc_list):
+                existing_name = existing if isinstance(existing, str) else existing.get('name', '')
+                existing_name = normalize_service_name(existing_name)
 
-                if remove:
-                    services.pop(i)
-                    removed(f'{svc_name} ← {module_name}')
-                else:
-                    entry = {
-                        'name': svc_name,
-                        'enabled': False,
-                    }
-                    if user_flag_detected:
-                        entry['user'] = True
-                    services[i] = entry
-                    info(f'{svc_name} → enabled: false in {module_name}')
+                if existing_name == svc_name:
+                    found = True
 
-                if not dry_run:
-                    save_yaml(module_file, module_data)
+                    if isinstance(existing, dict) and existing.get('user'):
+                        user_flag_detected = True
+
+                    if remove:
+                        svc_list.pop(i)
+                        removed(f'{svc_name} ← {module_name}')
+                    else:
+                        entry = {'name': svc_name, 'enabled': False}
+                        if user_flag_detected:
+                            entry['user'] = True
+                        svc_list[i] = entry
+                        info(f'{svc_name} → enabled: false in {module_name}')
+
+                    if not dry_run:
+                        save_yaml(module_file, module_data)
+                    break
+
+            if found:
                 break
 
-    if not found_in:
-        warning(f'{svc_name} not found in any module')
+        if found:
+            to_disable.append((svc_name, user_flag_detected))
+        else:
+            warning(f'{svc_name} not found in any module')
+
+    if not to_disable:
         return
 
     if dry_run:
         info('Dry run - no changes made')
         return
 
-    user_str = ' (user)' if user_flag_detected else ''
-    if disable_service(svc_name, user_flag_detected):
-        success(f'Disabled {svc_name}{user_str}')
-    else:
-        error(f'Failed to disable {svc_name}')
+    failed = []
+    for svc_name, is_user in to_disable:
+        user_str = ' (user)' if is_user else ''
+        if disable_service(svc_name, is_user):
+            success(f'Disabled {svc_name}{user_str}')
+        else:
+            failed.append(svc_name)
+            error(f'Failed to disable {svc_name}')
+
+    if failed:
         raise typer.Exit(1)
 
 
