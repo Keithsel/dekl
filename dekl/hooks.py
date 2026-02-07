@@ -1,4 +1,5 @@
 import subprocess
+import os
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -101,12 +102,17 @@ def mark_hook_run(hook_key: str):
 
 def execute_hook(hook: Hook) -> bool:
     """Execute a hook script. Returns True if successful."""
-    cmd = ['bash', str(hook.path)]
+    script_path = Path(hook.path)
+
+    if os.access(script_path, os.X_OK):
+        cmd = [str(script_path)]
+    else:
+        cmd = ['bash', str(script_path)]
 
     if hook.root:
         cmd = ['sudo'] + cmd
 
-    result = subprocess.run(cmd)
+    result = subprocess.run(cmd, env=os.environ)
     return result.returncode == 0
 
 
