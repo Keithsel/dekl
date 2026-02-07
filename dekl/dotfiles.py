@@ -8,48 +8,59 @@ from dekl.output import info, warning, error, added
 def get_module_dotfiles(module_name: str) -> list[dict]:
     """Get dotfiles config for a module.
 
-    Returns list of {source: Path, target: Path}
+    Returns list of {source: Path, target: Path, module: str}
     """
     module = load_module(module_name)
     module_path = MODULES_DIR / module_name
     dotfiles_dir = module_path / 'dotfiles'
 
-    if not dotfiles_dir.exists():
-        return []
-
     dotfiles_config = module.get('dotfiles')
 
     if dotfiles_config is None:
-        warning(f"Module '{module_name}' has dotfiles/ but no dotfiles declaration")
+        if dotfiles_dir.exists():
+            warning(f"Module '{module_name}' has dotfiles/ but no dotfiles declaration")
         return []
 
     # Explicitly disabled
     if dotfiles_config is False:
         return []
 
-    home = Path.home()
-    config_dir = home / '.config'
-
-    if dotfiles_config is True:
-        overrides = {}
-    elif isinstance(dotfiles_config, dict):
-        overrides = dotfiles_config
-    else:
-        warning(f"Module '{module_name}' has invalid dotfiles config")
+    if not dotfiles_dir.exists():
+        warning(f"Module '{module_name}' declares dotfiles but has no dotfiles/ directory")
         return []
 
+    home = Path.home()
+    config_dir = home / '.config'
     result = []
 
-    for item in dotfiles_dir.iterdir():
-        source = item
-        name = item.name
+    if dotfiles_config is True:
+        for item in dotfiles_dir.iterdir():
+            result.append({
+                'source': item,
+                'target': config_dir / item.name,
+                'module': module_name,
+            })
+        return result
 
-        if name in overrides:
-            # Explicit target from map
-            target = Path(overrides[name]).expanduser()
-        else:
-            # Default to ~/.config/{name}
-            target = config_dir / name
+    if not isinstance(dotfiles_config, dict):
+        warning(f"Module '{module_name}' has invalid dotfiles config (must be true, false, or dict)")
+        return []
+
+    for source_key, target_str in dotfiles_config.items():
+        # Trailing slash indicates directory
+        is_dir = source_key.endswith('/')
+        source_name = source_key.rstrip('/')
+
+        source = dotfiles_dir / source_name
+        target = Path(target_str).expanduser()
+
+        if not source.exists():
+            warning(f"Module '{module_name}' dotfile not found: {source}")
+            continue
+
+        if is_dir and not source.is_dir():
+            warning(f"Module '{module_name}' dotfile '{source_key}' has trailing slash but is not a directory")
+            continue
 
         result.append({
             'source': source,
@@ -133,7 +144,6 @@ def sync_dotfiles(dry_run: bool = False) -> bool:
         source = df['source']
         target = df['target']
 
-        # Symlink already correct
         if target.is_symlink() and target.resolve() == source.resolve():
             continue
 
@@ -150,7 +160,6 @@ def sync_dotfiles(dry_run: bool = False) -> bool:
             target.unlink()
 
         target.parent.mkdir(parents=True, exist_ok=True)
-
         target.symlink_to(source)
         added(f'{source.name} -> {target}')
 
