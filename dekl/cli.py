@@ -1,5 +1,6 @@
 import shutil
 import socket
+import subprocess
 import typer
 import yaml
 
@@ -182,23 +183,121 @@ def init(host: str = typer.Option(None, '--host', '-H', help='Host name (default
 
 
 @app.command()
-def merge():
+def merge(
+    services: bool = typer.Option(False, '--services', '-s', help='Merge enabled services'),
+    dry_run: bool = typer.Option(False, '--dry-run', '-n', help='Show what would be done'),
+):
     """Capture current system state into system module."""
+    if services:
+        merge_services(dry_run)
+    else:
+        merge_packages(dry_run)
+
+
+def get_enabled_services() -> set[str]:
+    """Get all currently enabled systemd services."""
+    result = subprocess.run(
+        ['systemctl', 'list-unit-files', '--type=service', '--state=enabled', '--no-legend'],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return set()
+
+    services = set()
+    for line in result.stdout.strip().split('\n'):
+        if line:
+            parts = line.split()
+            if parts:
+                services.add(parts[0])
+    return services
+
+
+def get_enabled_user_services() -> set[str]:
+    """Get all currently enabled user systemd services."""
+    result = subprocess.run(
+        ['systemctl', '--user', 'list-unit-files', '--type=service', '--state=enabled', '--no-legend'],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return set()
+
+    services = set()
+    for line in result.stdout.strip().split('\n'):
+        if line:
+            parts = line.split()
+            if parts:
+                services.add(parts[0])
+    return services
+
+
+def merge_packages(dry_run: bool):
+    """Merge explicitly installed packages into system module."""
     system_dir = MODULES_DIR / 'system'
     system_dir.mkdir(parents=True, exist_ok=True)
+    module_path = system_dir / 'module.yaml'
 
     packages = sorted(get_explicit_packages())
 
-    module = {'packages': packages}
+    if dry_run:
+        info(f'Would capture {len(packages)} packages into system module')
+        return
+
+    save_yaml(module_path, {'packages': packages})
+    success(f'Captured {len(packages)} packages into system module')
+    info("Add 'system' to your host config modules")
+
+
+def merge_services(dry_run: bool):
+    """Merge enabled services into system module."""
+    system_dir = MODULES_DIR / 'system'
+    system_dir.mkdir(parents=True, exist_ok=True)
     module_path = system_dir / 'module.yaml'
 
-    save_yaml(module_path, module)
+    if module_path.exists():
+        with open(module_path) as f:
+            module_data = yaml.safe_load(f) or {}
+    else:
+        module_data = {}
 
-    success(f'Captured {len(packages)} packages into system module')
-    info('')
-    info("Add 'system' to your host config:")
-    info('  modules:')
-    info('    - system')
+    declared_services = get_declared_services()
+    declared_names = {s.name for s in declared_services}
+
+    system_services = get_enabled_services()
+    user_services = get_enabled_user_services()
+
+    unmanaged_system = sorted(system_services - declared_names)
+    unmanaged_user = sorted(user_services - declared_names)
+
+    info(f'Found {len(system_services)} system, {len(user_services)} user services')
+
+    if not unmanaged_system and not unmanaged_user:
+        success('All enabled services are already managed')
+        return
+
+    total = len(unmanaged_system) + len(unmanaged_user)
+
+    if dry_run:
+        info(f'Would add {total} services to system module')
+        for svc in unmanaged_system:
+            info(f'  {svc}')
+        for svc in unmanaged_user:
+            info(f'  {svc} (user)')
+        return
+
+    services_list = module_data.get('services', [])
+
+    for svc in unmanaged_system:
+        services_list.append(svc)
+
+    for svc in unmanaged_user:
+        services_list.append({'name': svc, 'user': True})
+
+    module_data['services'] = services_list
+    save_yaml(module_path, module_data)
+
+    success(f'Captured {total} services into system module')
 
 
 @app.command()
