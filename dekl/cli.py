@@ -17,6 +17,7 @@ from dekl.config import (
     normalize_service_name,
 )
 from dekl.packages import (
+    get_all_installed_packages,
     get_explicit_packages,
     get_orphan_packages,
     install_packages,
@@ -215,18 +216,19 @@ def status(
             warning(f'  {m}')
 
     declared = get_declared_packages()
-    installed = get_explicit_packages()
+    installed_explicit = get_explicit_packages()
+    installed_all = get_all_installed_packages()
     orphans = get_orphan_packages()
 
     prune_enabled = resolve_prune_mode(host_config, prune)
-    plan = compute_package_plan(declared, installed, orphans)
+    plan = compute_package_plan(declared, installed_explicit, installed_all, orphans)
 
     dotfiles = get_all_dotfiles()
     services = get_declared_services()
 
     info(f'Host: {host}')
     info(f'Declared: {len(declared)} packages, {len(dotfiles)} dotfiles, {len(services)} services')
-    info(f'Installed: {len(installed)} explicit, {len(orphans)} orphans')
+    info(f'Installed: {len(installed_explicit)} explicit, {len(orphans)} orphans')
     info(f'Prune: {"enabled" if prune_enabled else "disabled"}')
 
     print_package_plan(plan, prune_enabled)
@@ -308,10 +310,11 @@ def sync(
 
     # Packages
     declared = get_declared_packages()
-    installed = get_explicit_packages()
+    installed_explicit = get_explicit_packages()
+    installed_all = get_all_installed_packages()
     orphans = get_orphan_packages()
 
-    plan = compute_package_plan(declared, installed, orphans)
+    plan = compute_package_plan(declared, installed_explicit, installed_all, orphans)
     print_package_plan(plan, prune_enabled)
 
     to_remove = []

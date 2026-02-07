@@ -16,6 +16,19 @@ def get_explicit_packages() -> set[str]:
     return set(output.split('\n'))
 
 
+def get_all_installed_packages() -> set[str]:
+    """Get all installed packages (explicit + dependencies)."""
+    result = subprocess.run(
+        ['pacman', '-Qq'],
+        capture_output=True,
+        text=True,
+    )
+    output = result.stdout.strip()
+    if not output:
+        return set()
+    return set(output.split('\n'))
+
+
 def get_orphan_packages() -> set[str]:
     """Get orphaned dependencies."""
     result = subprocess.run(

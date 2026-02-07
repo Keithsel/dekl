@@ -12,15 +12,16 @@ class PackagePlan:
 
 def compute_package_plan(
     declared: list[str],
-    installed: set[str],
+    installed_explicit: set[str],
+    installed_all: set[str],
     orphans: set[str],
 ) -> PackagePlan:
     """Compute package changes. Always computes all lists."""
     declared_set = set(declared)
 
     return PackagePlan(
-        to_install=[p for p in declared if p not in installed],
-        undeclared=sorted(installed - declared_set),
+        to_install=[p for p in declared if p not in installed_all],
+        undeclared=sorted(installed_explicit - declared_set),
         orphans=sorted(orphans),
     )
 
