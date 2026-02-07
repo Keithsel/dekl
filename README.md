@@ -193,34 +193,40 @@ Modules can include dotfiles to symlink into your home directory.
 
 Create a `dotfiles/` directory in the module with your config files.
 
-Example module with dotfiles (`modules/neovim/module.yaml`):
+Supported formats:
 
 ```yaml
-packages:
-  - neovim
+# Symlink all to ~/.config/
+dotfiles: true
 
-dotfiles: true  # Symlink all files to ~/.config/
-```
+# Disabled
+dotfiles: false
 
-Or map specific files:
-
-```yaml
+# Explicit mapping
 dotfiles:
-  nvim: ~/.config/nvim  # Directory mapping
-  zshrc: ~/.zshrc       # File outside .config
+  nvim: ~/.config/nvim
+  fonts: ~/.local/share/fonts
+  conf: ~/.config/app/conf       # auto-detect
+  conf/: ~/.config/app/conf.d/   # explicit directory
 ```
+
+- `dotfiles: true`: Symlink all files and directories in `dotfiles/` to `~/.config/`
+- `dotfiles: false`: Disable dotfiles for this module
+- Dict format: Map source files/directories to target paths
+    - Trailing slash on source indicates directory (e.g., `conf/`)
+    - Targets are expanded with `~` for home directory
 
 ## Commands
 
 - `dekl init [host]`: Initialize config for a host (defaults to current hostname) and select AUR helper
-- `dekl merge`: Capture current explicit packages into a `system` module
-- `dekl status`: Show diff between declared and installed packages, services, and dotfiles
+- `dekl merge [--services] [--dry-run]`: Capture current explicit packages into a `system` module
+- `dekl status [--prune/--no-prune]`: Show diff between declared and installed packages, services, and dotfiles
 - `dekl sync [--dry-run] [--prune/--no-prune] [--yes] [--no-hooks] [--no-dotfiles] [--no-services]`: Apply changes to sync system with declared state
 - `dekl update [--dry-run] [--no-hooks]`: Upgrade system packages
-- `dekl add <package> [-m module] [--dry-run]`: Add a package to a module and install it
-- `dekl drop <package> [--dry-run]`: Remove a package from all modules and uninstall it
-- `dekl enable <service> [-m module] [--user] [--dry-run]`: Add a service to a module and enable it
-- `dekl disable <service> [-m module] [--remove] [--user] [--dry-run]`: Disable a service (set enabled: false or remove from module)
+- `dekl add <package>... [-m module] [--dry-run]`: Add package(s) to a module and install them
+- `dekl drop <package>... [--dry-run]`: Remove package(s) from all modules and uninstall them
+- `dekl enable <service>... [-m module] [--user] [--dry-run]`: Add service(s) to a module and enable them
+- `dekl disable <service>... [-m module] [--remove] [--user] [--dry-run]`: Disable service(s) (set enabled: false or remove from module)
 - `dekl hook list`: List all hooks and their status
 - `dekl hook run <name>`: Manually run a hook
 - `dekl hook reset <name>`: Reset a hook to run again on next sync
