@@ -51,10 +51,10 @@ app = typer.Typer(
     context_settings={'help_option_names': ['--help', '-h']},
 )
 
-pkg_app = typer.Typer(help='[green]\[p, pkg][/green] Manage packages')
-svc_app = typer.Typer(help='[green]\[s, svc][/green] Manage services')
-mod_app = typer.Typer(help='[green]\[m, mod][/green] Manage modules')
-hook_app = typer.Typer(help='[green]\[h, hk][/green] Manage hooks')
+pkg_app = typer.Typer(help='Manage packages (alias: [green]p, pkg[/green])')
+svc_app = typer.Typer(help='Manage services (alias: [green]s, svc[/green])')
+mod_app = typer.Typer(help='Manage modules (alias: [green]m, mod[/green])')
+hook_app = typer.Typer(help='Manage hooks (alias: [green]h, hk[/green])')
 
 app.add_typer(pkg_app, name='package')
 app.add_typer(pkg_app, name='p', hidden=True)
@@ -925,7 +925,7 @@ def mod_list():
             svcs = len(module.get('services', []))
             dots = module.get('dotfiles', {})
             dot_count = len(dots) if isinstance(dots, dict) else (1 if dots else 0)
-            status = '✓' if name in enabled else '○'
+            status = '[green]✓[/green]' if name in enabled else '[dim]○[/dim]'
             info(f'{status} {name}: {pkgs} packages, {svcs} services, {dot_count} dotfiles')
         except FileNotFoundError:
             warning(f'○ {name}: missing module.yaml')
