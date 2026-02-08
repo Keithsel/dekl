@@ -520,9 +520,8 @@ def add(
         if package in pkg_list:
             warning(f'{package} already in {target}')
         else:
-            pkg_list.append(package)
             to_install.append(package)
-            added(f'{package} → {target}')
+            added(f'{package} ↑ {target}')
 
     if not to_install:
         return
@@ -531,14 +530,14 @@ def add(
         info('Dry run - no changes made')
         return
 
-    save_module(module_file, module_data)
-
     require_configured_helper_or_exit()
-    if install_packages(to_install):
-        success(f'Installed {len(to_install)} package(s)')
-    else:
+    if not install_packages(to_install):
         error('Failed to install packages')
         raise typer.Exit(1)
+
+    pkg_list.extend(to_install)
+    save_module(module_file, module_data)
+    success(f'Installed {len(to_install)} package(s)')
 
 
 @app.command()
@@ -549,6 +548,8 @@ def drop(
     """Remove package(s) from all modules and uninstall."""
     host = load_host_config()
     to_remove = []
+    # Track pending changes: {module_file: (module_data, [packages_to_remove])}
+    pending = {}
 
     for package in packages:
         found = False
@@ -557,17 +558,17 @@ def drop(
             if not module_file.exists():
                 continue
 
-            with open(module_file) as f:
-                module_data = yaml.safe_load(f) or {}
+            if module_file not in pending:
+                with open(module_file) as f:
+                    pending[module_file] = (yaml.safe_load(f) or {}, [])
 
+            module_data, pkgs_to_remove = pending[module_file]
             pkg_list = module_data.get('packages', [])
+
             if package in pkg_list:
                 found = True
-                pkg_list.remove(package)
-                removed(f'{package} ← {module_name}')
-
-                if not dry_run:
-                    save_module(module_file, module_data)
+                pkgs_to_remove.append(package)
+                removed(f'{package} ↓ {module_name}')
 
         if found:
             to_remove.append(package)
@@ -582,11 +583,17 @@ def drop(
         return
 
     require_configured_helper_or_exit()
-    if remove_packages(to_remove):
-        success(f'Removed {len(to_remove)} package(s)')
-    else:
+    if not remove_packages(to_remove):
         error('Failed to remove packages')
         raise typer.Exit(1)
+
+    for module_file, (module_data, pkgs_to_remove) in pending.items():
+        pkg_list = module_data.get('packages', [])
+        for pkg in pkgs_to_remove:
+            if pkg in pkg_list:
+                pkg_list.remove(pkg)
+        save_module(module_file, module_data)
+    success(f'Removed {len(to_remove)} package(s)')
 
 
 @app.command()
@@ -602,6 +609,8 @@ def enable(
     svc_list = module_data.setdefault('services', [])
 
     to_enable = []
+    # Track updates: [(index_or_none, entry, svc_name, is_user)]
+    pending_updates = []
 
     for service in services:
         svc_name = normalize_service_name(service)
@@ -613,7 +622,8 @@ def enable(
 
             if existing_name == svc_name:
                 if isinstance(existing, dict) and not existing.get('enabled', True):
-                    svc_list[i] = {'name': service, 'user': user, 'enabled': True} if user else service
+                    new_entry = {'name': service, 'user': user, 'enabled': True} if user else service
+                    pending_updates.append((i, new_entry, svc_name, user))
                     info(f'Re-enabling {svc_name} in {target}')
                     to_enable.append((svc_name, user))
                 else:
@@ -622,11 +632,9 @@ def enable(
                 break
 
         if not already_exists:
-            if user:
-                svc_list.append({'name': service, 'user': True})
-            else:
-                svc_list.append(service)
-            added(f'{svc_name} → {target}')
+            new_entry = {'name': service, 'user': True} if user else service
+            pending_updates.append((None, new_entry, svc_name, user))
+            added(f'{svc_name} ↑ {target}')
             to_enable.append((svc_name, user))
 
     if not to_enable:
@@ -635,8 +643,6 @@ def enable(
     if dry_run:
         info('Dry run - no changes made')
         return
-
-    save_module(module_file, module_data)
 
     failed = []
     for svc_name, is_user in to_enable:
@@ -649,6 +655,13 @@ def enable(
 
     if failed:
         raise typer.Exit(1)
+
+    for idx, entry, _, _ in pending_updates:
+        if idx is None:
+            svc_list.append(entry)
+        else:
+            svc_list[idx] = entry
+    save_module(module_file, module_data)
 
 
 @app.command()
@@ -664,6 +677,8 @@ def disable(
     modules_to_search = [module] if module else host.get('modules', [])
 
     to_disable = []
+    # Track pending: {module_file: (module_data, [(index, new_entry_or_none, svc_name, is_user)])}
+    pending = {}
 
     for service in services:
         svc_name = normalize_service_name(service)
@@ -675,10 +690,13 @@ def disable(
             if not module_file.exists():
                 continue
 
-            with open(module_file) as f:
-                module_data = yaml.safe_load(f) or {}
+            if module_file not in pending:
+                with open(module_file) as f:
+                    pending[module_file] = (yaml.safe_load(f) or {}, [])
 
+            module_data, updates = pending[module_file]
             svc_list = module_data.get('services', [])
+
             for i, existing in enumerate(svc_list):
                 existing_name = existing if isinstance(existing, str) else existing.get('name', '')
                 existing_name = normalize_service_name(existing_name)
@@ -690,17 +708,14 @@ def disable(
                         user_flag_detected = True
 
                     if remove:
-                        svc_list.pop(i)
-                        removed(f'{svc_name} ← {module_name}')
+                        updates.append((i, None, svc_name, user_flag_detected))
+                        removed(f'{svc_name} ↓ {module_name}')
                     else:
                         entry = {'name': svc_name, 'enabled': False}
                         if user_flag_detected:
                             entry['user'] = True
-                        svc_list[i] = entry
-                        info(f'{svc_name} → enabled: false in {module_name}')
-
-                    if not dry_run:
-                        save_module(module_file, module_data)
+                        updates.append((i, entry, svc_name, user_flag_detected))
+                        info(f'{svc_name} ↓ enabled: false in {module_name}')
                     break
 
             if found:
@@ -729,6 +744,16 @@ def disable(
 
     if failed:
         raise typer.Exit(1)
+
+    for module_file, (module_data, updates) in pending.items():
+        svc_list = module_data.get('services', [])
+        # preserve indices
+        for idx, entry, _, _ in sorted(updates, key=lambda x: x[0] if x[0] is not None else -1, reverse=True):
+            if entry is None:
+                svc_list.pop(idx)
+            else:
+                svc_list[idx] = entry
+        save_module(module_file, module_data)
 
 
 # Hook subcommands
