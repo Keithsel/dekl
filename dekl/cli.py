@@ -521,7 +521,7 @@ def add(
             warning(f'{package} already in {target}')
         else:
             to_install.append(package)
-            added(f'{package} ↑ {target}')
+            added(f'{package} → {target}')
 
     if not to_install:
         return
@@ -568,7 +568,7 @@ def drop(
             if package in pkg_list:
                 found = True
                 pkgs_to_remove.append(package)
-                removed(f'{package} ↓ {module_name}')
+                removed(f'{package} ← {module_name}')
 
         if found:
             to_remove.append(package)
@@ -634,7 +634,7 @@ def enable(
         if not already_exists:
             new_entry = {'name': service, 'user': True} if user else service
             pending_updates.append((None, new_entry, svc_name, user))
-            added(f'{svc_name} ↑ {target}')
+            added(f'{svc_name} → {target}')
             to_enable.append((svc_name, user))
 
     if not to_enable:
@@ -709,13 +709,13 @@ def disable(
 
                     if remove:
                         updates.append((i, None, svc_name, user_flag_detected))
-                        removed(f'{svc_name} ↓ {module_name}')
+                        removed(f'{svc_name} ← {module_name}')
                     else:
                         entry = {'name': svc_name, 'enabled': False}
                         if user_flag_detected:
                             entry['user'] = True
                         updates.append((i, entry, svc_name, user_flag_detected))
-                        info(f'{svc_name} ↓ enabled: false in {module_name}')
+                        info(f'{svc_name} enabled: false in {module_name}')
                     break
 
             if found:
