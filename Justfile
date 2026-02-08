@@ -198,9 +198,9 @@ bump new_version:
     git push
     echo "Bumped to v{{new_version}}"
 
-# Full release (usage: just release 0.2.0 path/to/arch-repo path/to/aur)
+# Full release (usage: just release 0.2.0)
 [group('release')]
-release new_version arch_repo_dir aur_dir: gh-doctor (bump new_version)
+release new_version: gh-doctor (bump new_version)
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -209,7 +209,15 @@ release new_version arch_repo_dir aur_dir: gh-doctor (bump new_version)
 
     echo ">>> Waiting for release workflow..."
     sleep 5
-    gh run watch --exit-status
+    gh run watch --exit-status --workflow="Release"
+
+    echo ">>> Release v{{new_version}} completed. Manually update arch-repo and AUR as documented in README.md"
+
+# Update arch-repo and AUR (usage: just update-repos 0.2.0 path/to/arch-repo path/to/aur)
+[group('release')]
+update-repos new_version arch_repo_dir aur_dir:
+    #!/usr/bin/env bash
+    set -euo pipefail
 
     echo ">>> Updating arch-repo..."
     cd "{{arch_repo_dir}}"
@@ -239,4 +247,4 @@ release new_version arch_repo_dir aur_dir: gh-doctor (bump new_version)
     git commit -m "Update to {{new_version}}"
     git push
 
-    echo ">>> Done! Released v{{new_version}}"
+    echo ">>> Done! Updated repos for v{{new_version}}"

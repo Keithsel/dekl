@@ -267,21 +267,18 @@ just build-nuitka
 
 ## Release
 
-1. Bump version:
+1. Run the release command:
 
    ```bash
-   just bump 0.2.0
+   just release 0.2.0
    ```
 
-2. Run the [Release workflow](https://github.com/Keithsel/dekl/actions/workflows/release.yml) with the version number
+   This will bump the version, commit, push, trigger the GitHub release workflow, and wait for it to complete.
 
-3. Review and publish the draft release on GitHub
+2. Review and publish the draft release on GitHub.
 
-4. Update AUR:
+3. Update the repos:
 
    ```bash
-   just aur-update 0.2.0 ~aur/dekl
-   cd ~aur/dekl
-   makepkg -si  # test
-   git add -A && git commit -m "Update to 0.2.0" && git push
+   just update-repos 0.2.0 ~repo ~aur
    ```
