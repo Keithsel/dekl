@@ -5,7 +5,7 @@ Declarative package and dotfile management for Arch Linux.
 [![dekl](https://img.shields.io/aur/version/dekl?color=1793d1&label=dekl&logo=arch-linux&style=for-the-badge)](https://aur.archlinux.org/packages/dekl/)
 [![dekl-git](https://img.shields.io/aur/version/dekl-git?color=1793d1&label=dekl-git&logo=arch-linux&style=for-the-badge)](https://aur.archlinux.org/packages/dekl-git/)
 
-`dekl` allows you to define your system's packages and configuration in YAML files, making your Arch Linux setup reproducible and version-controllable.
+`dekl` allows you to define your system's packages and configuration in YAML files, making your Arch Linux setup repeatable and version-controllable.
 
 > **⚠️ Alpha Development Notice**
 >
@@ -13,7 +13,7 @@ Declarative package and dotfile management for Arch Linux.
 
 ## Philosophy
 
-`dekl` follows the [Repeatable Arch Manifesto](https://gist.github.com/Keithsel/9974f329267d16c78a6f7921eb24e740): declare intent, converge state, move on.
+`dekl` follows the [Declarable Arch Manifesto](https://gist.github.com/Keithsel/9974f329267d16c78a6f7921eb24e740) - declare intent, converge state, move on.
 
 Your system matches your declaration, nothing more. Every package belongs to a module. Simplicity over features. Safety first - destructive operations require confirmation by default.
 
@@ -218,18 +218,23 @@ dotfiles:
 
 ## Commands
 
-- `dekl init [host]`: Initialize config for a host (defaults to current hostname) and select AUR helper
+- `dekl init [--host HOST]`: Initialize config for a host (defaults to current hostname) and select AUR helper
 - `dekl merge [--services] [--dry-run]`: Capture current explicit packages into a `system` module
 - `dekl status [--prune/--no-prune]`: Show diff between declared and installed packages, services, and dotfiles
 - `dekl sync [--dry-run] [--prune/--no-prune] [--yes] [--no-hooks] [--no-dotfiles] [--no-services]`: Apply changes to sync system with declared state
 - `dekl update [--dry-run] [--no-hooks]`: Upgrade system packages
-- `dekl add <package>... [-m module] [--dry-run]`: Add package(s) to a module and install them
-- `dekl drop <package>... [--dry-run]`: Remove package(s) from all modules and uninstall them
-- `dekl enable <service>... [-m module] [--user] [--dry-run]`: Add service(s) to a module and enable them
-- `dekl disable <service>... [-m module] [--remove] [--user] [--dry-run]`: Disable service(s) (set enabled: false or remove from module)
+- `dekl add <packages>... [-m module] [--dry-run]`: Add package(s) to a module and install them
+- `dekl drop <packages>... [--dry-run]`: Remove package(s) from all modules and uninstall them
+- `dekl enable <services>... [-m module] [--user] [--dry-run]`: Add service(s) to a module and enable them
+- `dekl disable <services>... [-m module] [--remove] [--user] [--dry-run]`: Disable service(s) (set enabled: false or remove from module)
 - `dekl hook list`: List all hooks and their status
 - `dekl hook run <name>`: Manually run a hook
 - `dekl hook reset <name>`: Reset a hook to run again on next sync
+- `dekl module list`: List all modules and their status
+- `dekl module new <names>...`: Create new empty module(s)
+- `dekl module on <names>...`: Activate module(s)
+- `dekl module off <names>...`: Deactivate module(s)
+- `dekl module show <name>`: Show module contents
 
 ## See Also
 
