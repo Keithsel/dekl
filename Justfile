@@ -5,8 +5,9 @@
 # Global Variables
 # ----------------
 
-REQUIRED_CMDS := "uv"
+REQUIRED_CMDS := "uv gh"
 version := `grep '__version__' dekl/__init__.py | cut -d"'" -f2`
+EXPECTED_USER := "Keithsel"
 
 # --------------
 # Setup Commands
@@ -27,6 +28,7 @@ alias l := lint
 alias f := format
 alias c := clean
 alias do := doctor
+alias gd := gh-doctor
 alias bb := build-binary
 alias bn := build-nuitka
 alias sc := symlink-config
@@ -43,6 +45,29 @@ alias rel := release
 [group('meta')]
 help:
   @just --list --unsorted
+
+# Check GitHub CLI setup
+[group('meta')]
+gh-doctor:
+  #!/usr/bin/env sh
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "gh not installed"
+    exit 1
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    echo "gh not authenticated. Run 'gh auth login'"
+    exit 1
+  fi
+  USER=$(gh api user --jq .login 2>/dev/null)
+  if [ -z "$USER" ]; then
+    echo "Failed to get gh user"
+    exit 1
+  fi
+  echo "gh authenticated as $USER"
+  if [ "$USER" != "{{EXPECTED_USER}}" ]; then
+    echo "gh user is $USER, expected {{EXPECTED_USER}}"
+    exit 1
+  fi
 
 # Check availability of commands
 [group('meta')]
@@ -166,29 +191,52 @@ version:
 # Bump version (usage: just bump 0.2.0)
 [group('release')]
 bump new_version:
-    #!/usr/bin/env sh
+    #!/usr/bin/env bash
     sed -i "s/__version__ = '.*'/__version__ = '{{new_version}}'/" dekl/__init__.py
     git add dekl/__init__.py
     git commit -m "release: v{{new_version}}"
     git push
-    echo "Now go to GitHub Actions and run the Release workflow with version {{new_version}}"
+    echo "Bumped to v{{new_version}}"
 
-# Update AUR PKGBUILD (usage: just aur-update 0.1.0 path/to/aur/dekl)
-aur-update new_version aur_dir:
-    #!/bin/bash
+# Full release (usage: just release 0.2.0 path/to/arch-repo path/to/aur)
+[group('release')]
+release new_version arch_repo_dir aur_dir: gh-doctor (bump new_version)
+    #!/usr/bin/env bash
     set -euo pipefail
 
-    SHA256=$(curl -sL https://github.com/Keithsel/dekl/releases/download/v{{new_version}}/dekl | sha256sum | cut -d' ' -f1)
+    echo ">>> Triggering GitHub Release workflow..."
+    gh workflow run release.yml -f version={{new_version}}
 
+    echo ">>> Waiting for release workflow..."
+    sleep 5
+    gh run watch --exit-status
+
+    echo ">>> Updating arch-repo..."
+    cd "{{arch_repo_dir}}"
+    sed -i "s/^pkgver=.*/pkgver={{new_version}}/" PKGBUILDS/dekl/PKGBUILD
+
+    rm -f x86_64/dekl-*.pkg.tar.zst*
+
+    cd PKGBUILDS/dekl
+    makepkg -sr --sign --noconfirm
+    mv *.pkg.tar.zst *.pkg.tar.zst.sig ../../x86_64/
+    cd ../..
+
+    cd x86_64
+    rm -f keithsel.db* keithsel.files*
+    repo-add --verify --sign keithsel.db.tar.gz *.pkg.tar.zst
+    cd ..
+
+    git add -A
+    git commit -m "dekl: update to {{new_version}}"
+    git push
+
+    echo ">>> Updating AUR..."
+    cp PKGBUILDS/dekl/PKGBUILD "{{aur_dir}}/"
     cd "{{aur_dir}}"
-
-    sed -i "s/^pkgver=.*/pkgver={{new_version}}/" PKGBUILD
-    sed -i "s/^sha256sums=.*/sha256sums=('$SHA256')/" PKGBUILD
-
     makepkg --printsrcinfo > .SRCINFO
+    git add PKGBUILD .SRCINFO
+    git commit -m "Update to {{new_version}}"
+    git push
 
-    echo "Updated PKGBUILD:"
-    grep -E '^(pkgver|sha256sums)=' PKGBUILD
-    echo ""
-    echo "Test with: cd {{aur_dir}} && makepkg -si"
-    echo "Push with: cd {{aur_dir}} && git add -A && git commit -m 'Update to {{new_version}}' && git push"
+    echo ">>> Done! Released v{{new_version}}"
