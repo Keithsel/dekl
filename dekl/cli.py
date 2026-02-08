@@ -44,18 +44,29 @@ from dekl.plan import PackagePlan, compute_package_plan, resolve_prune_mode
 from dekl.bootstrap import bootstrap_aur_helper, get_available_aur_helper
 from dekl.output import info, success, warning, error, added, removed, header
 
+
 app = typer.Typer(
     name='dekl',
     help='Declarative Arch Linux system manager',
-    context_settings={
-        'help_option_names': ['--help', '-h'],
-    },
+    context_settings={'help_option_names': ['--help', '-h']},
 )
-hook_app = typer.Typer(help='Manage hooks')
-app.add_typer(hook_app, name='hook')
 
-module_app = typer.Typer(help='Manage modules')
-app.add_typer(module_app, name='module')
+pkg_app = typer.Typer(help='[green]\[p, pkg][/green] Manage packages')
+svc_app = typer.Typer(help='[green]\[s, svc][/green] Manage services')
+mod_app = typer.Typer(help='[green]\[m, mod][/green] Manage modules')
+hook_app = typer.Typer(help='[green]\[h, hk][/green] Manage hooks')
+
+app.add_typer(pkg_app, name='package')
+app.add_typer(pkg_app, name='p', hidden=True)
+app.add_typer(pkg_app, name='pkg', hidden=True)
+app.add_typer(svc_app, name='service')
+app.add_typer(svc_app, name='s', hidden=True)
+app.add_typer(svc_app, name='svc', hidden=True)
+app.add_typer(mod_app, name='module')
+app.add_typer(mod_app, name='m', hidden=True)
+app.add_typer(mod_app, name='mod', hidden=True)
+app.add_typer(hook_app, name='hook')
+app.add_typer(hook_app, name='h', hidden=True)
 
 
 def require_configured_helper_or_exit() -> None:
@@ -96,7 +107,6 @@ def print_package_plan(plan: PackagePlan, prune_enabled: bool):
             header('Removing undeclared:')
             for pkg in plan.undeclared:
                 removed(pkg)
-
         if plan.orphans:
             header('Removing orphans:')
             for pkg in plan.orphans:
@@ -106,7 +116,6 @@ def print_package_plan(plan: PackagePlan, prune_enabled: bool):
             header('Undeclared (not removing, prune disabled):')
             for pkg in plan.undeclared:
                 info(f'  {pkg}')
-
         if plan.orphans:
             header('Orphans (not removing, prune disabled):')
             for pkg in plan.orphans:
@@ -187,124 +196,6 @@ def init(host: str = typer.Option(None, '--host', '-H', help='Host name (default
 
 
 @app.command()
-def merge(
-    services: bool = typer.Option(False, '--services', '-s', help='Merge enabled services'),
-    dry_run: bool = typer.Option(False, '--dry-run', '-n', help='Show what would be done'),
-):
-    """Capture current system state into system module."""
-    if services:
-        merge_services(dry_run)
-    else:
-        merge_packages(dry_run)
-
-
-def get_enabled_services() -> set[str]:
-    """Get all currently enabled systemd services."""
-    result = subprocess.run(
-        ['systemctl', 'list-unit-files', '--type=service', '--state=enabled', '--no-legend'],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        return set()
-
-    services = set()
-    for line in result.stdout.strip().split('\n'):
-        if line:
-            parts = line.split()
-            if parts:
-                services.add(parts[0])
-    return services
-
-
-def get_enabled_user_services() -> set[str]:
-    """Get all currently enabled user systemd services."""
-    result = subprocess.run(
-        ['systemctl', '--user', 'list-unit-files', '--type=service', '--state=enabled', '--no-legend'],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        return set()
-
-    services = set()
-    for line in result.stdout.strip().split('\n'):
-        if line:
-            parts = line.split()
-            if parts:
-                services.add(parts[0])
-    return services
-
-
-def merge_packages(dry_run: bool):
-    """Merge explicitly installed packages into system module."""
-    system_dir = MODULES_DIR / 'system'
-    system_dir.mkdir(parents=True, exist_ok=True)
-    module_path = system_dir / 'module.yaml'
-
-    packages = sorted(get_explicit_packages())
-
-    if dry_run:
-        info(f'Would capture {len(packages)} packages into system module')
-        return
-
-    save_module(module_path, {'packages': packages})
-    success(f'Captured {len(packages)} packages into system module')
-    info("Add 'system' to your host config modules")
-
-
-def merge_services(dry_run: bool):
-    """Merge enabled services into system module."""
-    system_dir = MODULES_DIR / 'system'
-    system_dir.mkdir(parents=True, exist_ok=True)
-    module_path = system_dir / 'module.yaml'
-
-    if module_path.exists():
-        with open(module_path) as f:
-            module_data = yaml.safe_load(f) or {}
-    else:
-        module_data = {}
-
-    declared_services = get_declared_services()
-    declared_names = {s.name for s in declared_services}
-
-    system_services = get_enabled_services()
-    user_services = get_enabled_user_services()
-
-    unmanaged_system = sorted(system_services - declared_names)
-    unmanaged_user = sorted(user_services - declared_names)
-
-    info(f'Found {len(system_services)} system, {len(user_services)} user services')
-
-    if not unmanaged_system and not unmanaged_user:
-        success('All enabled services are already managed')
-        return
-
-    total = len(unmanaged_system) + len(unmanaged_user)
-
-    if dry_run:
-        info(f'Would add {total} services to system module')
-        for svc in unmanaged_system:
-            info(f'  {svc}')
-        for svc in unmanaged_user:
-            info(f'  {svc} (user)')
-        return
-
-    services_list = module_data.get('services', [])
-
-    for svc in unmanaged_system:
-        services_list.append(svc)
-
-    for svc in unmanaged_user:
-        services_list.append({'name': svc, 'user': True})
-
-    module_data['services'] = services_list
-    save_module(module_path, module_data)
-
-    success(f'Captured {total} services into system module')
-
-
-@app.command()
 def status(
     prune: bool | None = typer.Option(None, '--prune/--no-prune', help='Override host auto_prune'),
 ):
@@ -366,7 +257,6 @@ def sync(
     modules = host_config.get('modules', [])
     prune_enabled = resolve_prune_mode(host_config, prune)
 
-    # Bootstrap AUR helper if needed (skip if using pacman only)
     configured_helper = host_config.get('aur_helper', 'paru')
 
     if configured_helper in {'paru', 'yay'} and not shutil.which(configured_helper):
@@ -504,11 +394,107 @@ def update(
 
 
 @app.command()
-def add(
-    packages: list[str] = typer.Argument(..., help='Package(s) to add'),
-    module: str = typer.Option(None, '-m', '--module', help='Target module (default: local)'),
-    dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
+def merge(
+    services: bool = typer.Option(False, '--services', '-s', help='Merge enabled services'),
+    dry_run: bool = typer.Option(False, '--dry-run', '-n', help='Show what would be done'),
 ):
+    """Capture current system state into system module."""
+    if services:
+        _merge_services(dry_run)
+    else:
+        _merge_packages(dry_run)
+
+
+def _merge_packages(dry_run: bool):
+    """Merge explicitly installed packages into system module."""
+    system_dir = MODULES_DIR / 'system'
+    system_dir.mkdir(parents=True, exist_ok=True)
+    module_path = system_dir / 'module.yaml'
+
+    packages = sorted(get_explicit_packages())
+
+    if dry_run:
+        info(f'Would capture {len(packages)} packages into system module')
+        return
+
+    save_module(module_path, {'packages': packages})
+    success(f'Captured {len(packages)} packages into system module')
+    info("Add 'system' to your host config modules")
+
+
+def _merge_services(dry_run: bool):
+    """Merge enabled services into system module."""
+    system_dir = MODULES_DIR / 'system'
+    system_dir.mkdir(parents=True, exist_ok=True)
+    module_path = system_dir / 'module.yaml'
+
+    if module_path.exists():
+        with open(module_path) as f:
+            module_data = yaml.safe_load(f) or {}
+    else:
+        module_data = {}
+
+    declared_services = get_declared_services()
+    declared_names = {s.name for s in declared_services}
+
+    system_services = _get_enabled_services()
+    user_services = _get_enabled_user_services()
+
+    unmanaged_system = sorted(system_services - declared_names)
+    unmanaged_user = sorted(user_services - declared_names)
+
+    info(f'Found {len(system_services)} system, {len(user_services)} user services')
+
+    if not unmanaged_system and not unmanaged_user:
+        success('All enabled services are already managed')
+        return
+
+    total = len(unmanaged_system) + len(unmanaged_user)
+
+    if dry_run:
+        info(f'Would add {total} services to system module')
+        for svc in unmanaged_system:
+            info(f'  {svc}')
+        for svc in unmanaged_user:
+            info(f'  {svc} (user)')
+        return
+
+    services_list = module_data.get('services', [])
+    for svc in unmanaged_system:
+        services_list.append(svc)
+    for svc in unmanaged_user:
+        services_list.append({'name': svc, 'user': True})
+
+    module_data['services'] = services_list
+    save_module(module_path, module_data)
+    success(f'Captured {total} services into system module')
+
+
+def _get_enabled_services() -> set[str]:
+    """Get all currently enabled systemd services."""
+    result = subprocess.run(
+        ['systemctl', 'list-unit-files', '--type=service', '--state=enabled', '--no-legend'],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return set()
+    return {line.split()[0] for line in result.stdout.strip().split('\n') if line}
+
+
+def _get_enabled_user_services() -> set[str]:
+    """Get all currently enabled user systemd services."""
+    result = subprocess.run(
+        ['systemctl', '--user', 'list-unit-files', '--type=service', '--state=enabled', '--no-legend'],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return set()
+    return {line.split()[0] for line in result.stdout.strip().split('\n') if line}
+
+
+def _pkg_add(packages: list[str], module: str | None, dry_run: bool):
     """Add package(s) to a module and install."""
     target = module or 'local'
     module_file, module_data = ensure_module(target, dry_run)
@@ -540,11 +526,7 @@ def add(
     success(f'Installed {len(to_install)} package(s)')
 
 
-@app.command()
-def drop(
-    packages: list[str] = typer.Argument(..., help='Package(s) to remove'),
-    dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
-):
+def _pkg_drop(packages: list[str], dry_run: bool):
     """Remove package(s) from all modules and uninstall."""
     host = load_host_config()
     to_remove = []
@@ -596,13 +578,57 @@ def drop(
     success(f'Removed {len(to_remove)} package(s)')
 
 
-@app.command()
-def enable(
-    services: list[str] = typer.Argument(..., help='Service(s) to enable'),
+@app.command('add')
+def add(
+    packages: list[str] = typer.Argument(..., help='Package(s) to add'),
     module: str = typer.Option(None, '-m', '--module', help='Target module (default: local)'),
-    user: bool = typer.Option(False, '--user', help='User service (systemctl --user)'),
     dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
 ):
+    """Add package(s) to a module and install."""
+    _pkg_add(packages, module, dry_run)
+
+
+@app.command('drop')
+def drop(
+    packages: list[str] = typer.Argument(..., help='Package(s) to remove'),
+    dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
+):
+    """Remove package(s) from all modules and uninstall."""
+    _pkg_drop(packages, dry_run)
+
+
+@pkg_app.command('add')
+def pkg_add(
+    packages: list[str] = typer.Argument(..., help='Package(s) to add'),
+    module: str = typer.Option(None, '-m', '--module', help='Target module (default: local)'),
+    dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
+):
+    """Add package(s) to a module and install."""
+    _pkg_add(packages, module, dry_run)
+
+
+@pkg_app.command('drop')
+def pkg_drop(
+    packages: list[str] = typer.Argument(..., help='Package(s) to remove'),
+    dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
+):
+    """Remove package(s) from all modules and uninstall."""
+    _pkg_drop(packages, dry_run)
+
+
+@pkg_app.command('list')
+def pkg_list():
+    """List all declared packages."""
+    packages = get_declared_packages()
+    if not packages:
+        info('No packages declared')
+        return
+    info(f'{len(packages)} packages declared:')
+    for pkg in sorted(packages):
+        info(f'  {pkg}')
+
+
+def _svc_enable(services: list[str], module: str | None, user: bool, dry_run: bool):
     """Add service(s) to a module and enable."""
     target = module or 'local'
     module_file, module_data = ensure_module(target, dry_run)
@@ -664,14 +690,7 @@ def enable(
     save_module(module_file, module_data)
 
 
-@app.command()
-def disable(
-    services: list[str] = typer.Argument(..., help='Service(s) to disable'),
-    module: str = typer.Option(None, '-m', '--module', help='Target module (searches all if not specified)'),
-    remove: bool = typer.Option(False, '-r', '--remove', help='Remove from module instead of setting enabled: false'),
-    user: bool = typer.Option(False, '--user', help='User service (systemctl --user)'),
-    dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
-):
+def _svc_disable(services: list[str], module: str | None, remove: bool, user: bool, dry_run: bool):
     """Disable service(s) (set enabled: false or remove from module)."""
     host = load_host_config()
     modules_to_search = [module] if module else host.get('modules', [])
@@ -756,31 +775,135 @@ def disable(
         save_module(module_file, module_data)
 
 
-# Hook subcommands
-@hook_app.command('list')
-def hook_list():
-    """List all hooks and their status."""
-    list_hooks()
+@app.command('enable')
+def enable(
+    services: list[str] = typer.Argument(..., help='Service(s) to enable'),
+    module: str = typer.Option(None, '-m', '--module', help='Target module (default: local)'),
+    user: bool = typer.Option(False, '--user', help='User service (systemctl --user)'),
+    dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
+):
+    """Add service(s) to a module and enable."""
+    _svc_enable(services, module, user, dry_run)
 
 
-@hook_app.command('run')
-def hook_run(name: str = typer.Argument(..., help='Hook name (e.g., neovim:post, host:post_sync)')):
-    """Manually run a hook (ignores tracking)."""
-    if not force_run_hook(name):
-        error(f'Hook failed: {name}')
-        raise typer.Exit(1)
-    success(f'Hook completed: {name}')
+@app.command('disable')
+def disable(
+    services: list[str] = typer.Argument(..., help='Service(s) to disable'),
+    module: str = typer.Option(None, '-m', '--module', help='Target module (searches all if not specified)'),
+    remove: bool = typer.Option(False, '-r', '--remove', help='Remove from module instead of setting enabled: false'),
+    user: bool = typer.Option(False, '--user', help='User service (systemctl --user)'),
+    dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
+):
+    """Disable service(s) (set enabled: false or remove from module)."""
+    _svc_disable(services, module, remove, user, dry_run)
 
 
-@hook_app.command('reset')
-def hook_reset_cmd(name: str = typer.Argument(..., help='Hook name or module (e.g., neovim:post, neovim, host)')):
-    """Reset a hook to run again on next sync."""
-    reset_hook(name)
+@svc_app.command('enable')
+def svc_enable(
+    services: list[str] = typer.Argument(..., help='Service(s) to enable'),
+    module: str = typer.Option(None, '-m', '--module', help='Target module (default: local)'),
+    user: bool = typer.Option(False, '--user', help='User service (systemctl --user)'),
+    dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
+):
+    """Add service(s) to a module and enable."""
+    _svc_enable(services, module, user, dry_run)
 
 
-# Module subcommands
-@module_app.command('list')
-def module_list():
+@svc_app.command('disable')
+def svc_disable(
+    services: list[str] = typer.Argument(..., help='Service(s) to disable'),
+    module: str = typer.Option(None, '-m', '--module', help='Target module (searches all if not specified)'),
+    remove: bool = typer.Option(False, '-r', '--remove', help='Remove from module instead of setting enabled: false'),
+    user: bool = typer.Option(False, '--user', help='User service (systemctl --user)'),
+    dry_run: bool = typer.Option(False, '-n', '--dry-run', help='Show what would happen'),
+):
+    """Disable service(s) (set enabled: false or remove from module)."""
+    _svc_disable(services, module, remove, user, dry_run)
+
+
+@svc_app.command('list')
+def svc_list():
+    """List all declared services."""
+    services = get_declared_services()
+    if not services:
+        info('No services declared')
+        return
+    info(f'{len(services)} services declared:')
+    for svc in services:
+        user_flag = ' (user)' if svc.user else ''
+        enabled_flag = '' if svc.enabled else ' (disabled)'
+        info(f'  {svc.name}{user_flag}{enabled_flag}')
+
+
+def _mod_on(names: list[str]):
+    """Activate module(s)."""
+    host_file = HOSTS_DIR / f'{get_host_name()}.yaml'
+    host = load_host_config()
+    modules = host.setdefault('modules', [])
+
+    changed = False
+    for name in names:
+        if not (MODULES_DIR / name / 'module.yaml').exists():
+            warning(f'{name} not found')
+            continue
+        if name in modules:
+            info(f'{name} already active')
+        else:
+            modules.append(name)
+            added(f'{name}')
+            changed = True
+
+    if changed:
+        save_yaml(host_file, host)
+        info('Run `dekl sync` to apply changes')
+
+
+def _mod_off(names: list[str]):
+    """Deactivate module(s)."""
+    host_file = HOSTS_DIR / f'{get_host_name()}.yaml'
+    host = load_host_config()
+    modules = host.get('modules', [])
+
+    changed = False
+    for name in names:
+        if name not in modules:
+            info(f'{name} not active')
+        else:
+            modules.remove(name)
+            removed(f'{name}')
+            changed = True
+
+    if changed:
+        save_yaml(host_file, host)
+        info('Run `dekl sync` to apply changes')
+
+
+@app.command('on')
+def on(names: list[str] = typer.Argument(..., help='Module(s) to activate')):
+    """Activate module(s)."""
+    _mod_on(names)
+
+
+@app.command('off')
+def off(names: list[str] = typer.Argument(..., help='Module(s) to deactivate')):
+    """Deactivate module(s)."""
+    _mod_off(names)
+
+
+@mod_app.command('on')
+def mod_on(names: list[str] = typer.Argument(..., help='Module(s) to activate')):
+    """Activate module(s)."""
+    _mod_on(names)
+
+
+@mod_app.command('off')
+def mod_off(names: list[str] = typer.Argument(..., help='Module(s) to deactivate')):
+    """Deactivate module(s)."""
+    _mod_off(names)
+
+
+@mod_app.command('list')
+def mod_list():
     """List all modules."""
     host = load_host_config()
     enabled = host.get('modules', [])
@@ -790,6 +913,10 @@ def module_list():
         for path in MODULES_DIR.iterdir():
             if (path / 'module.yaml').exists():
                 all_modules.append(path.name)
+
+    if not all_modules:
+        info('No modules found')
+        return
 
     for name in sorted(all_modules):
         try:
@@ -804,8 +931,8 @@ def module_list():
             warning(f'○ {name}: missing module.yaml')
 
 
-@module_app.command('new')
-def module_new(names: list[str] = typer.Argument(..., help='Module name(s) to create')):
+@mod_app.command('new')
+def mod_new(names: list[str] = typer.Argument(..., help='Module name(s) to create')):
     """Create new empty module(s)."""
     for name in names:
         module_path = MODULES_DIR / name
@@ -816,54 +943,13 @@ def module_new(names: list[str] = typer.Argument(..., help='Module name(s) to cr
         module_path.mkdir(parents=True)
         save_module(
             module_path / 'module.yaml',
-            {
-                'packages': [],
-                'services': [],
-                'dotfiles': {},
-            },
+            {'packages': [], 'services': [], 'dotfiles': {}},
         )
         success(f'Created {name}')
 
 
-@module_app.command('on')
-def module_on(names: list[str] = typer.Argument(..., help='Module(s) to activate')):
-    """Activate module(s)."""
-    host_file = HOSTS_DIR / f'{get_host_name()}.yaml'
-    host = load_host_config()
-    modules = host.setdefault('modules', [])
-
-    for name in names:
-        if not (MODULES_DIR / name / 'module.yaml').exists():
-            warning(f'{name} not found')
-            continue
-        if name in modules:
-            info(f'{name} already active')
-        else:
-            modules.append(name)
-            added(f'{name}')
-
-    save_yaml(host_file, host)
-
-
-@module_app.command('off')
-def module_off(names: list[str] = typer.Argument(..., help='Module(s) to deactivate')):
-    """Deactivate module(s)."""
-    host_file = HOSTS_DIR / f'{get_host_name()}.yaml'
-    host = load_host_config()
-    modules = host.get('modules', [])
-
-    for name in names:
-        if name not in modules:
-            info(f'{name} not active')
-        else:
-            modules.remove(name)
-            removed(f'{name}')
-
-    save_yaml(host_file, host)
-
-
-@module_app.command('show')
-def module_show(name: str = typer.Argument(..., help='Module to show')):
+@mod_app.command('show')
+def mod_show(name: str = typer.Argument(..., help='Module to show')):
     """Show module contents."""
     module = load_module(name)
     host = load_host_config()
@@ -896,6 +982,27 @@ def module_show(name: str = typer.Argument(..., help='Module to show')):
         elif isinstance(dots, dict):
             for src, target in dots.items():
                 info(f'  {src} -> {target}')
+
+
+@hook_app.command('list')
+def hook_list():
+    """List all hooks and their status."""
+    list_hooks()
+
+
+@hook_app.command('run')
+def hook_run(name: str = typer.Argument(..., help='Hook name (e.g., neovim:post, host:post_sync)')):
+    """Manually run a hook (ignores tracking)."""
+    if not force_run_hook(name):
+        error(f'Hook failed: {name}')
+        raise typer.Exit(1)
+    success(f'Hook completed: {name}')
+
+
+@hook_app.command('reset')
+def hook_reset(name: str = typer.Argument(..., help='Hook name or module (e.g., neovim:post, neovim, host)')):
+    """Reset a hook to run again on next sync."""
+    reset_hook(name)
 
 
 def main():
