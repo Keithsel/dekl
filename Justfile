@@ -222,30 +222,19 @@ update-repos new_version arch_repo_dir aur_dir:
 
     echo ">>> Updating arch-repo..."
     cd "{{arch_repo_dir}}"
+    git pull --rebase
     sed -i "s/^pkgver=.*/pkgver={{new_version}}/" PKGBUILDS/dekl/PKGBUILD
-
-    rm -f x86_64/dekl-*.pkg.tar.zst*
-
-    cd PKGBUILDS/dekl
-    makepkg -sr --sign --noconfirm
-    mv *.pkg.tar.zst *.pkg.tar.zst.sig ../../x86_64/
-    cd ../..
-
-    cd x86_64
-    rm -f keithsel.db* keithsel.files*
-    repo-add --verify --sign keithsel.db.tar.gz *.pkg.tar.zst
-    cd ..
-
-    git add -A
+    git add PKGBUILDS/dekl/PKGBUILD
     git commit -m "dekl: update to {{new_version}}"
     git push
 
     echo ">>> Updating AUR..."
-    cp PKGBUILDS/dekl/PKGBUILD "{{aur_dir}}/"
     cd "{{aur_dir}}"
+    git pull --rebase
+    cp "{{arch_repo_dir}}/PKGBUILDS/dekl/PKGBUILD" .
     makepkg --printsrcinfo > .SRCINFO
     git add PKGBUILD .SRCINFO
     git commit -m "Update to {{new_version}}"
     git push
 
-    echo ">>> Done! Updated repos for v{{new_version}}"
+    echo ">>> Done! Updated repos for v{{new_version}}. Arch-repo build workflow should trigger automatically."
