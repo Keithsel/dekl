@@ -36,6 +36,7 @@ alias pc := pre-commit
 alias v := version
 alias b := bump
 alias rel := release
+alias ur := update-repos
 
 # ----------------
 # Utility Commands
