@@ -16,6 +16,7 @@ from dekl.config import (
     save_module,
     save_yaml,
     normalize_service_name,
+    load_module,
 )
 from dekl.packages import (
     get_all_installed_packages,
@@ -52,6 +53,9 @@ app = typer.Typer(
 )
 hook_app = typer.Typer(help='Manage hooks')
 app.add_typer(hook_app, name='hook')
+
+module_app = typer.Typer(help='Manage modules')
+app.add_typer(module_app, name='module')
 
 
 def require_configured_helper_or_exit() -> None:
@@ -161,7 +165,7 @@ def init(host: str = typer.Option(None, '--host', '-H', help='Host name (default
 
     base_module = MODULES_DIR / 'base' / 'module.yaml'
     if not base_module.exists():
-        save_yaml(base_module, {'packages': ['base']})
+        save_module(base_module, {'packages': ['base']})
         success(f'Created {base_module}')
     else:
         info(f'Base module already exists: {base_module}')
@@ -244,7 +248,7 @@ def merge_packages(dry_run: bool):
         info(f'Would capture {len(packages)} packages into system module')
         return
 
-    save_yaml(module_path, {'packages': packages})
+    save_module(module_path, {'packages': packages})
     success(f'Captured {len(packages)} packages into system module')
     info("Add 'system' to your host config modules")
 
@@ -295,7 +299,7 @@ def merge_services(dry_run: bool):
         services_list.append({'name': svc, 'user': True})
 
     module_data['services'] = services_list
-    save_yaml(module_path, module_data)
+    save_module(module_path, module_data)
 
     success(f'Captured {total} services into system module')
 
@@ -563,7 +567,7 @@ def drop(
                 removed(f'{package} ← {module_name}')
 
                 if not dry_run:
-                    save_yaml(module_file, module_data)
+                    save_module(module_file, module_data)
 
         if found:
             to_remove.append(package)
@@ -696,7 +700,7 @@ def disable(
                         info(f'{svc_name} → enabled: false in {module_name}')
 
                     if not dry_run:
-                        save_yaml(module_file, module_data)
+                        save_module(module_file, module_data)
                     break
 
             if found:
@@ -747,6 +751,126 @@ def hook_run(name: str = typer.Argument(..., help='Hook name (e.g., neovim:post,
 def hook_reset_cmd(name: str = typer.Argument(..., help='Hook name or module (e.g., neovim:post, neovim, host)')):
     """Reset a hook to run again on next sync."""
     reset_hook(name)
+
+
+# Module subcommands
+@module_app.command('list')
+def module_list():
+    """List all modules."""
+    host = load_host_config()
+    enabled = host.get('modules', [])
+
+    all_modules = []
+    if MODULES_DIR.exists():
+        for path in MODULES_DIR.iterdir():
+            if (path / 'module.yaml').exists():
+                all_modules.append(path.name)
+
+    for name in sorted(all_modules):
+        try:
+            module = load_module(name)
+            pkgs = len(module.get('packages', []))
+            svcs = len(module.get('services', []))
+            dots = module.get('dotfiles', {})
+            dot_count = len(dots) if isinstance(dots, dict) else (1 if dots else 0)
+            status = '✓' if name in enabled else '○'
+            info(f'{status} {name}: {pkgs} packages, {svcs} services, {dot_count} dotfiles')
+        except FileNotFoundError:
+            warning(f'○ {name}: missing module.yaml')
+
+
+@module_app.command('new')
+def module_new(names: list[str] = typer.Argument(..., help='Module name(s) to create')):
+    """Create new empty module(s)."""
+    for name in names:
+        module_path = MODULES_DIR / name
+        if module_path.exists():
+            warning(f'{name} already exists')
+            continue
+
+        module_path.mkdir(parents=True)
+        save_module(
+            module_path / 'module.yaml',
+            {
+                'packages': [],
+                'services': [],
+                'dotfiles': {},
+            },
+        )
+        success(f'Created {name}')
+
+
+@module_app.command('on')
+def module_on(names: list[str] = typer.Argument(..., help='Module(s) to activate')):
+    """Activate module(s)."""
+    host_file = HOSTS_DIR / f'{get_host_name()}.yaml'
+    host = load_host_config()
+    modules = host.setdefault('modules', [])
+
+    for name in names:
+        if not (MODULES_DIR / name / 'module.yaml').exists():
+            warning(f'{name} not found')
+            continue
+        if name in modules:
+            info(f'{name} already active')
+        else:
+            modules.append(name)
+            added(f'{name}')
+
+    save_yaml(host_file, host)
+
+
+@module_app.command('off')
+def module_off(names: list[str] = typer.Argument(..., help='Module(s) to deactivate')):
+    """Deactivate module(s)."""
+    host_file = HOSTS_DIR / f'{get_host_name()}.yaml'
+    host = load_host_config()
+    modules = host.get('modules', [])
+
+    for name in names:
+        if name not in modules:
+            info(f'{name} not active')
+        else:
+            modules.remove(name)
+            removed(f'{name}')
+
+    save_yaml(host_file, host)
+
+
+@module_app.command('show')
+def module_show(name: str = typer.Argument(..., help='Module to show')):
+    """Show module contents."""
+    module = load_module(name)
+    host = load_host_config()
+    status = 'active' if name in host.get('modules', []) else 'inactive'
+
+    info(f'{name} ({status})')
+
+    pkgs = module.get('packages', [])
+    if pkgs:
+        header('Packages:')
+        for p in pkgs:
+            info(f'  {p}')
+
+    svcs = module.get('services', [])
+    if svcs:
+        header('Services:')
+        for s in svcs:
+            if isinstance(s, str):
+                info(f'  {s}')
+            else:
+                user = ' (user)' if s.get('user') else ''
+                enabled_str = '' if s.get('enabled', True) else ' (disabled)'
+                info(f'  {s["name"]}{user}{enabled_str}')
+
+    dots = module.get('dotfiles', {})
+    if dots:
+        header('Dotfiles:')
+        if dots is True:
+            info('  (all)')
+        elif isinstance(dots, dict):
+            for src, target in dots.items():
+                info(f'  {src} -> {target}')
 
 
 def main():
