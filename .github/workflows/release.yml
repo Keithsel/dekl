@@ -45,6 +45,9 @@ jobs:
             --output-dir=dist \
             --assume-yes-for-downloads \
             --lto=yes \
+            --follow-imports \
+            --include-package=rich \
+            --include-package-data=rich \
             dekl
 
       - name: Create draft release

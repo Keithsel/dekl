@@ -31,6 +31,9 @@ alias bb := build-binary
 alias bn := build-nuitka
 alias sc := symlink-config
 alias pc := pre-commit
+alias v := version
+alias b := bump
+alias rel := release
 
 # ----------------
 # Utility Commands
@@ -149,7 +152,7 @@ build-binary: install
 build-nuitka: install
   #!/usr/bin/env sh
   uv sync --group dev
-  uv run python -m nuitka --onefile --output-filename=dekl --output-dir=dist --assume-yes-for-downloads --lto=yes dekl
+  uv run python -m nuitka --onefile --output-filename=dekl --output-dir=dist --assume-yes-for-downloads --lto=yes --follow-imports --include-package=rich --include-package-data=rich dekl
 
 # -----------------
 # Release Commands
